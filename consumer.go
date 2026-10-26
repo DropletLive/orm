@@ -202,8 +202,8 @@ func (c *consumerImplementation) resolve(ctx Context) (NatsConsumer, error) {
 
 // Consume fetches one batch and dispatches it, grouped by subject.
 //
-// The subject is the identity: a message on fluxa.entity.orders and one on
-// fluxa.replay.<this consumer>.orders both resolve to the Orders handler, which
+// The subject is the identity: a message on orm.entity.orders and one on
+// orm.replay.<this consumer>.orders both resolve to the Orders handler, which
 // is what makes a replay drive the exact code path a real change drives.
 func (c *consumerImplementation) Consume(ctx context.Context, batch int, timeout time.Duration) error {
 	if batch <= 0 {

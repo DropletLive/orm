@@ -68,7 +68,7 @@ type EntityStreamOptions struct {
 type resolvedConsumer struct {
 	name    ConsumerName
 	options ConsumerDef
-	// stream is FLUXA_ENTITY or FLUXA_TASK. A consumer belongs to exactly one.
+	// stream is ORM_ENTITY or ORM_TASK. A consumer belongs to exactly one.
 	stream string
 	// tasks are the schemas on the declared queues, ordered by name. Empty for
 	// an entity consumer.

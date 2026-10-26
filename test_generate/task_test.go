@@ -151,7 +151,7 @@ func TestTaskSubjectIsItsQueueAndName(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, []string{"fluxa.task.media.TranscodeClip"}, subjects)
+	assert.Equal(t, []string{"orm.task.media.TranscodeClip"}, subjects)
 }
 
 // TestGeneratedBuilderRefusesAPartialConsumer: a consumer whose tasks are only

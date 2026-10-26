@@ -85,5 +85,5 @@ func TestGeneratedPublisherRegistersTheTableName(t *testing.T) {
 
 	assert.Contains(t, body,
 		`orm.RegisterEntityPublisher[GenerateEntityDirty]("generateEntityDirty", buildGenerateEntityDirtyDirtyEvent)`)
-	assert.NotContains(t, body, "fluxa.entity.")
+	assert.NotContains(t, body, "orm.entity.")
 }

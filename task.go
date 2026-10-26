@@ -15,7 +15,7 @@ const (
 	// HeaderJobRunID carries the job_runs row id. It is the one header a task
 	// message needs: the task's own identity is the subject, but a row id is not
 	// derivable from anything on the wire.
-	HeaderJobRunID = "Fluxa-Job-Run-ID"
+	HeaderJobRunID = "Orm-Job-Run-ID"
 
 	defaultTaskMaxAttempts = 5
 	defaultTaskBaseBackoff = 5 * time.Second
@@ -41,7 +41,7 @@ type Queued interface {
 // real use is pinning the old subject across a Go rename, because messages
 // already on the stream carry the old name.
 //
-// The subject must stay under `fluxa.task.`; Validate() rejects anything else.
+// The subject must stay under `orm.task.`; Validate() rejects anything else.
 type Subjected interface {
 	Subject() Subject
 }

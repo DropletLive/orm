@@ -520,6 +520,6 @@ func TestOutboxSubjectDerivesFromEntityName(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, []string{"fluxa.entity.generateEntityOutbox"}, subjects,
+	assert.Equal(t, []string{"orm.entity.generateEntityOutbox"}, subjects,
 		"the relayed row must land on the entity's own subject, exactly once")
 }

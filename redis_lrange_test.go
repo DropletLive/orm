@@ -118,11 +118,11 @@ func TestRedisLRangeNativeCommandSemantics(t *testing.T) {
 	var errorsCount float64
 	for _, family := range families {
 		switch family.GetName() {
-		case "fluxaorm_redis_queries_seconds":
+		case "orm_redis_queries_seconds":
 			for _, metric := range family.Metric {
 				reads += metric.GetHistogram().GetSampleCount()
 			}
-		case "fluxaorm_redis_queries_errors":
+		case "orm_redis_queries_errors":
 			for _, metric := range family.Metric {
 				errorsCount += metric.GetCounter().GetValue()
 			}

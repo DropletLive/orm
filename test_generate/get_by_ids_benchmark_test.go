@@ -95,17 +95,17 @@ func benchmarkGetByIDs10[T getByIDsBenchmarkEntity](b *testing.B, engine orm.Eng
 
 func prepareGetByIDs10(b *testing.B) (orm.Engine, []uint64, uint64) {
 	b.Helper()
-	dsn := os.Getenv("FLUXAORM_BENCH_MYSQL_DSN")
-	redisAddress := os.Getenv("FLUXAORM_BENCH_REDIS_ADDR")
+	dsn := os.Getenv("ORM_BENCH_MYSQL_DSN")
+	redisAddress := os.Getenv("ORM_BENCH_REDIS_ADDR")
 	if dsn == "" || redisAddress == "" {
-		b.Skip("set FLUXAORM_BENCH_MYSQL_DSN and FLUXAORM_BENCH_REDIS_ADDR to benchmark services")
+		b.Skip("set ORM_BENCH_MYSQL_DSN and ORM_BENCH_REDIS_ADDR to benchmark services")
 	}
 	redisDB := 0
-	if value := os.Getenv("FLUXAORM_BENCH_REDIS_DB"); value != "" {
+	if value := os.Getenv("ORM_BENCH_REDIS_DB"); value != "" {
 		var err error
 		redisDB, err = strconv.Atoi(value)
 		if err != nil || redisDB < 0 {
-			b.Fatal("FLUXAORM_BENCH_REDIS_DB must be a non-negative integer")
+			b.Fatal("ORM_BENCH_REDIS_DB must be a non-negative integer")
 		}
 	}
 	registry := orm.NewRegistry()

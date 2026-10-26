@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"strings"
 	"fmt"
 	"sort"
 	"time"
@@ -228,7 +229,7 @@ func (a NatsAlter) Exec(ctx Context) error {
 
 // GetNatsAlters compares registered NATS stream/consumer definitions with the actual broker state
 // and returns the operations needed to synchronize them. Manages two categories of streams:
-//  1. Async-flush stream (FLUXA_ASYNC_SQL)
+//  1. Async-flush stream (ORM_ASYNC_SQL)
 //  2. User-registered streams from RegisterNatsStream
 func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 	reg := ctx.Engine().Registry().(*engineRegistryImplementation)
@@ -265,7 +266,7 @@ func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 
 		ignoredSubjects := reg.natsIgnoredSubjects[poolCode]
 		for name, existingCfg := range existing {
-			if isFluxaManaged(name) && !subjectsIgnored(existingCfg.Subjects, ignoredSubjects) {
+			if isOrmManaged(name) && !subjectsIgnored(existingCfg.Subjects, ignoredSubjects) {
 				alters = append(alters, buildDeleteStreamAlter(js, name, poolCode))
 			}
 		}
@@ -420,8 +421,8 @@ func streamConfigEqual(existing, wanted jetstream.StreamConfig) bool {
 	return true
 }
 
-func isFluxaManaged(streamName string) bool {
-	return len(streamName) >= 6 && (streamName[:6] == "FLUXA_" || streamName[:6] == "fluxa_")
+func isOrmManaged(streamName string) bool {
+	return strings.HasPrefix(streamName, "ORM_") || strings.HasPrefix(streamName, "orm_")
 }
 
 func subjectsIgnored(subjects []string, ignored map[string]bool) bool {

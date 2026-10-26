@@ -28,7 +28,7 @@ func (BadQueueTask) Queue() Queue { return "Not-A-Queue" }
 type PinnedSubjectTask struct{ Ref string }
 
 func (PinnedSubjectTask) Queue() Queue     { return "alpha" }
-func (PinnedSubjectTask) Subject() Subject { return "fluxa.task.alpha.OldName" }
+func (PinnedSubjectTask) Subject() Subject { return "orm.task.alpha.OldName" }
 
 type EscapedSubjectTask struct{ Ref string }
 
@@ -69,7 +69,7 @@ func TestTaskFallsThroughToTheDefaultQueue(t *testing.T) {
 
 	reg := engine.Registry().(*engineRegistryImplementation)
 	assert.Equal(t, DefaultQueue, reg.tasks["ResolveTaskB"].queue)
-	assert.Equal(t, Subject("fluxa.task.default.ResolveTaskB"), reg.tasks["ResolveTaskB"].subject)
+	assert.Equal(t, Subject("orm.task.default.ResolveTaskB"), reg.tasks["ResolveTaskB"].subject)
 }
 
 // A queue nothing drains is the silent failure the fall-through creates: the
@@ -164,7 +164,7 @@ func TestTaskSubjectOverrideWins(t *testing.T) {
 	assert.NoError(t, err)
 
 	reg := engine.Registry().(*engineRegistryImplementation)
-	assert.Equal(t, Subject("fluxa.task.alpha.OldName"), reg.tasks["PinnedSubjectTask"].subject)
+	assert.Equal(t, Subject("orm.task.alpha.OldName"), reg.tasks["PinnedSubjectTask"].subject)
 }
 
 // An override outside the prefix would publish into no stream at all, and the
@@ -172,7 +172,7 @@ func TestTaskSubjectOverrideWins(t *testing.T) {
 func TestValidateRejectsATaskSubjectOutsideThePrefix(t *testing.T) {
 	_, err := validateTasks([]any{EscapedSubjectTask{}}, alphaConsumer())
 
-	assert.ErrorContains(t, err, "outside 'fluxa.task.'")
+	assert.ErrorContains(t, err, "outside 'orm.task.'")
 }
 
 // A mechanism that records its work is worthless if the table is missing, and

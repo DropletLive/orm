@@ -31,10 +31,10 @@ func TestConsumerCarriesItsStreamExplicitly(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
-		"fluxa.entity.generateEntityDirty",
-		"fluxa.entity.generateEntityDirtyB",
-		"fluxa.entity.generateEntityOutbox",
-		"fluxa.replay.test-indexer.>",
+		"orm.entity.generateEntityDirty",
+		"orm.entity.generateEntityDirtyB",
+		"orm.entity.generateEntityOutbox",
+		"orm.replay.test-indexer.>",
 	}, info.Config.FilterSubjects, "a multi-entity consumer needs the plural filter list")
 	assert.Empty(t, info.Config.FilterSubject, "the singular field is for one-filter consumers only")
 }
@@ -55,7 +55,7 @@ func TestEntityStreamCarriesBothWildcards(t *testing.T) {
 	info, err := stream.Info(ctx.Context())
 	require.NoError(t, err)
 
-	assert.ElementsMatch(t, []string{"fluxa.entity.>", "fluxa.replay.>"}, info.Config.Subjects)
+	assert.ElementsMatch(t, []string{"orm.entity.>", "orm.replay.>"}, info.Config.Subjects)
 	assert.Empty(t, alterDescriptions(t, ctx), "a second reconcile of an unchanged topology must be a no-op")
 }
 
@@ -98,7 +98,7 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 	info, err := cons.Info(widened.Context())
 	require.NoError(t, err)
 
-	assert.Contains(t, info.Config.FilterSubjects, "fluxa.entity.generateEntityDirtyB",
+	assert.Contains(t, info.Config.FilterSubjects, "orm.entity.generateEntityDirtyB",
 		"the widened filter list must be applied")
 	assert.Equal(t, uint64(1), info.NumPending,
 		"the durable kept its position, so the message published before the change is still owed")

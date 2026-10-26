@@ -1029,8 +1029,8 @@ func TestGenerate(t *testing.T) {
 	// A consumer's filter list is its entities plus its own replay wildcard, so a
 	// replay can never reach a consumer that did not ask for it.
 	assert.Equal(t, []orm.Subject{
-		"fluxa.entity.generateEntityDirty",
-		"fluxa.replay.test-notifier.>",
+		"orm.entity.generateEntityDirty",
+		"orm.replay.test-notifier.>",
 	}, entities.ConsumerTestNotifier.Subjects())
 
 	// ClearRedisCache: insert entity to populate redis cache, then clear it

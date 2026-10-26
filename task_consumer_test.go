@@ -133,7 +133,7 @@ func TestUndecodablePayloadIsTerminatedOnFirstAttempt(t *testing.T) {
 	runID, err := createJobRun(orm, JobRunSpec{Task: "LadderTask", Queue: "workers", Payload: "not json"})
 	require.NoError(t, err)
 
-	publishRawTask(t, orm, "fluxa.task.workers.LadderTask", []byte("not json"), runID)
+	publishRawTask(t, orm, "orm.task.workers.LadderTask", []byte("not json"), runID)
 
 	pump(t, consumer, func() bool {
 		return loadJobRun(t, orm.Clone(), runID).Status == JobRunFailed
@@ -156,7 +156,7 @@ func TestUnknownTaskIsTerminated(t *testing.T) {
 	runID, err := createJobRun(orm, JobRunSpec{Task: "GhostTask", Queue: "workers", Payload: "{}"})
 	require.NoError(t, err)
 
-	publishRawTask(t, orm, "fluxa.task.workers.GhostTask", []byte("{}"), runID)
+	publishRawTask(t, orm, "orm.task.workers.GhostTask", []byte("{}"), runID)
 
 	pump(t, consumer, func() bool {
 		return loadJobRun(t, orm.Clone(), runID).Status == JobRunFailed

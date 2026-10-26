@@ -24,18 +24,18 @@ const (
 	// EntityStreamName carries every entity change and every replay. One stream
 	// rather than one per consumer: the subject already identifies the entity, so
 	// per-consumer streams would only re-add the duplication.
-	EntityStreamName = "FLUXA_ENTITY"
+	EntityStreamName = "ORM_ENTITY"
 	// TaskStreamName carries dispatched tasks. Separate from entity changes
 	// because the two need different retention, and because a task backlog must
 	// not evict a change nobody has consumed yet.
-	TaskStreamName = "FLUXA_TASK"
+	TaskStreamName = "ORM_TASK"
 
 	// DefaultQueue carries every task that does not declare a Queue().
 	DefaultQueue Queue = "default"
 
-	entitySubjectPrefix = "fluxa.entity."
-	replaySubjectPrefix = "fluxa.replay."
-	taskSubjectPrefix   = "fluxa.task."
+	entitySubjectPrefix = "orm.entity."
+	replaySubjectPrefix = "orm.replay."
+	taskSubjectPrefix   = "orm.task."
 
 	entitySubjectWildcard = entitySubjectPrefix + ">"
 	replaySubjectWildcard = replaySubjectPrefix + ">"
@@ -54,7 +54,7 @@ func EntitySubject(table string) Subject {
 // ReplaySubject addresses a synthetic event to one consumer only.
 //
 // This is the reason replay gets its own subject space rather than reusing the
-// entity subject: republishing an order onto fluxa.entity.orders would reach
+// entity subject: republishing an order onto orm.entity.orders would reach
 // every consumer of orders, so reindexing Elasticsearch would re-fire the
 // customer notifications that another consumer sends. A private subject makes
 // replay per-consumer by construction.

@@ -100,7 +100,7 @@ func TestExtractClickhouseTTL(t *testing.T) {
 	}{
 		{
 			"with TTL and SETTINGS",
-			"CREATE TABLE fluxabee.scale_measurements (`imei` UInt64, `date` DateTime) ENGINE = MergeTree PARTITION BY toYYYYMM(date) ORDER BY (hive, date) TTL date + toIntervalYear(2) SETTINGS index_granularity = 8192",
+			"CREATE TABLE db.scale_measurements (`imei` UInt64, `date` DateTime) ENGINE = MergeTree PARTITION BY toYYYYMM(date) ORDER BY (hive, date) TTL date + toIntervalYear(2) SETTINGS index_granularity = 8192",
 			"date + toIntervalYear(2)",
 		},
 		{
