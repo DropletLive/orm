@@ -217,11 +217,11 @@ func (g *codeGenerator) generateDispatchFunctions(
 		g.addLine("// cannot roll back with it, so the task would run against data that never")
 		g.addLine("// existed. Dispatch after the commit.")
 		g.addLine(fmt.Sprintf("func Dispatch%s(", schema.name))
-		g.addLine("	orm orm.Context,")
+		g.addLine("	ctx orm.Context,")
 		g.addLine(fmt.Sprintf("	task *%s,", qualified))
 		g.addLine("	opts ...orm.DispatchOption,")
 		g.addLine(") (uint64, error) {")
-		g.addLine("	return orm.DispatchTask(orm, task, opts...)")
+		g.addLine("	return orm.DispatchTask(ctx, task, opts...)")
 		g.addLine("}")
 	}
 }

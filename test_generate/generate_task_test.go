@@ -29,7 +29,7 @@ func TestGeneratedDispatchNamesTheTaskStruct(t *testing.T) {
 
 	assert.Contains(t, body, "func DispatchSendWelcomeEmail(")
 	assert.Contains(t, body, "task *jobtasks.SendWelcomeEmail,")
-	assert.Contains(t, body, "return orm.DispatchTask(orm, task, opts...)")
+	assert.Contains(t, body, "return orm.DispatchTask(ctx, task, opts...)")
 	assert.Contains(t, body, `the "emails" queue`)
 }
 
