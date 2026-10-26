@@ -42,6 +42,22 @@ func SQLScanTarget(destination any) any {
 	}
 }
 
+// ScanIDs appends the single uint64 column of every remaining row to ids and
+// returns the result. One scan target is shared by all rows, so a page of IDs
+// costs a constant number of allocations instead of database/sql's per-row
+// numeric-to-string conversion of int64 into uint64.
+func ScanIDs(rows Rows, ids []uint64) ([]uint64, error) {
+	var id uint64
+	target := [1]any{SQLScanTarget(&id)}
+	for rows.Next() {
+		if err := rows.Scan(target[:]...); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 type sqlScanUint64 uint64
 
 func (destination *sqlScanUint64) Scan(source any) error {

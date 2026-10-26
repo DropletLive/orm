@@ -24,15 +24,71 @@ type EqCondition interface {
 	EqValue() any
 }
 
+// sqlWriter is implemented by the built-in conditions so query builders can
+// append their SQL and parameters in place, without the temporary clause
+// strings and parameter slices that ToSQL returns.
+type sqlWriter interface {
+	writeSQL(b *strings.Builder, params []any) []any
+	paramCount() int
+}
+
+func conditionToSQL(c sqlWriter) (string, []any) {
+	var b strings.Builder
+	params := c.writeSQL(&b, nil)
+	return b.String(), params
+}
+
+// writeCondition appends c to b. Built-in conditions are dispatched by concrete
+// type rather than through sqlWriter: an interface call would make the caller's
+// builder escape to the heap. Other conditions fall back to ToSQL.
+func writeCondition(b *strings.Builder, params []any, c Condition) []any {
+	switch condition := c.(type) {
+	case eqCondition:
+		return condition.writeSQL(b, params)
+	case compCondition:
+		return condition.writeSQL(b, params)
+	case inCondition:
+		return condition.writeSQL(b, params)
+	case likeCondition:
+		return condition.writeSQL(b, params)
+	case nullCondition:
+		return condition.writeSQL(b, params)
+	case notCondition:
+		return condition.writeSQL(b, params)
+	}
+	clause, conditionParams := c.ToSQL()
+	b.WriteString(clause)
+	return append(params, conditionParams...)
+}
+
+func conditionParamCount(c Condition) int {
+	if writer, ok := c.(sqlWriter); ok {
+		return writer.paramCount()
+	}
+	_, params := c.ToSQL()
+	return len(params)
+}
+
+func writeColumn(b *strings.Builder, column string) {
+	b.WriteByte('`')
+	b.WriteString(column)
+	b.WriteByte('`')
+}
+
 type eqCondition struct {
 	column string
 	value  any
 }
 
-func (c eqCondition) ToSQL() (string, []any) {
-	return "`" + c.column + "` = ?", []any{c.value}
+func (c eqCondition) ToSQL() (string, []any) { return conditionToSQL(c) }
+
+func (c eqCondition) writeSQL(b *strings.Builder, params []any) []any {
+	writeColumn(b, c.column)
+	b.WriteString(" = ?")
+	return append(params, c.value)
 }
 
+func (c eqCondition) paramCount() int    { return 1 }
 func (c eqCondition) columnName() string { return c.column }
 func (c eqCondition) ColumnName() string { return c.column }
 func (c eqCondition) EqValue() any       { return c.value }
@@ -44,10 +100,17 @@ type compCondition struct {
 	value    any
 }
 
-func (c compCondition) ToSQL() (string, []any) {
-	return "`" + c.column + "` " + c.operator + " ?", []any{c.value}
+func (c compCondition) ToSQL() (string, []any) { return conditionToSQL(c) }
+
+func (c compCondition) writeSQL(b *strings.Builder, params []any) []any {
+	writeColumn(b, c.column)
+	b.WriteByte(' ')
+	b.WriteString(c.operator)
+	b.WriteString(" ?")
+	return append(params, c.value)
 }
 
+func (c compCondition) paramCount() int    { return 1 }
 func (c compCondition) columnName() string { return c.column }
 func (c compCondition) Not() Condition     { return notCondition{inner: c} }
 
@@ -56,14 +119,22 @@ type inCondition struct {
 	values []any
 }
 
-func (c inCondition) ToSQL() (string, []any) {
-	placeholders := strings.Repeat(",?", len(c.values))
-	if len(placeholders) > 0 {
-		placeholders = placeholders[1:]
+func (c inCondition) ToSQL() (string, []any) { return conditionToSQL(c) }
+
+func (c inCondition) writeSQL(b *strings.Builder, params []any) []any {
+	writeColumn(b, c.column)
+	b.WriteString(" IN (")
+	for i := range c.values {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('?')
 	}
-	return "`" + c.column + "` IN (" + placeholders + ")", c.values
+	b.WriteByte(')')
+	return append(params, c.values...)
 }
 
+func (c inCondition) paramCount() int    { return len(c.values) }
 func (c inCondition) columnName() string { return c.column }
 func (c inCondition) Not() Condition     { return notCondition{inner: c} }
 
@@ -72,10 +143,15 @@ type likeCondition struct {
 	value  string
 }
 
-func (c likeCondition) ToSQL() (string, []any) {
-	return "`" + c.column + "` LIKE ?", []any{c.value}
+func (c likeCondition) ToSQL() (string, []any) { return conditionToSQL(c) }
+
+func (c likeCondition) writeSQL(b *strings.Builder, params []any) []any {
+	writeColumn(b, c.column)
+	b.WriteString(" LIKE ?")
+	return append(params, c.value)
 }
 
+func (c likeCondition) paramCount() int    { return 1 }
 func (c likeCondition) columnName() string { return c.column }
 func (c likeCondition) Not() Condition     { return notCondition{inner: c} }
 
@@ -84,13 +160,19 @@ type nullCondition struct {
 	isNull bool
 }
 
-func (c nullCondition) ToSQL() (string, []any) {
+func (c nullCondition) ToSQL() (string, []any) { return conditionToSQL(c) }
+
+func (c nullCondition) writeSQL(b *strings.Builder, params []any) []any {
+	writeColumn(b, c.column)
 	if c.isNull {
-		return "`" + c.column + "` IS NULL", nil
+		b.WriteString(" IS NULL")
+	} else {
+		b.WriteString(" IS NOT NULL")
 	}
-	return "`" + c.column + "` IS NOT NULL", nil
+	return params
 }
 
+func (c nullCondition) paramCount() int    { return 0 }
 func (c nullCondition) columnName() string { return c.column }
 func (c nullCondition) Not() Condition     { return notCondition{inner: c} }
 
@@ -98,10 +180,16 @@ type notCondition struct {
 	inner Condition
 }
 
-func (c notCondition) ToSQL() (string, []any) {
-	sql, args := c.inner.ToSQL()
-	return "NOT (" + sql + ")", args
+func (c notCondition) ToSQL() (string, []any) { return conditionToSQL(c) }
+
+func (c notCondition) writeSQL(b *strings.Builder, params []any) []any {
+	b.WriteString("NOT (")
+	params = writeCondition(b, params, c.inner)
+	b.WriteByte(')')
+	return params
 }
+
+func (c notCondition) paramCount() int    { return conditionParamCount(c.inner) }
 func (c notCondition) columnName() string { return c.inner.columnName() }
 func (c notCondition) Not() Condition     { return c.inner }
 

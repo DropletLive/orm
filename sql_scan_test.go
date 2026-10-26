@@ -2,11 +2,14 @@ package orm
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSQLScanTargetNumericParity(t *testing.T) {
@@ -186,4 +189,64 @@ func BenchmarkSQLScanNumeric(b *testing.B) {
 			}
 		})
 	}
+}
+
+type scanIDsTestRows struct {
+	sources []any
+	next    int
+	err     error
+}
+
+func (r *scanIDsTestRows) Next() bool {
+	if r.next >= len(r.sources) {
+		return false
+	}
+	r.next++
+	return true
+}
+
+func (r *scanIDsTestRows) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if len(dest) != 1 {
+		return errors.New("expected one destination")
+	}
+	return dest[0].(sql.Scanner).Scan(r.sources[r.next-1])
+}
+
+func (r *scanIDsTestRows) Columns() ([]string, error) { return []string{"ID"}, nil }
+
+func TestScanIDs(t *testing.T) {
+	rows := &scanIDsTestRows{sources: []any{int64(1), uint64(2), []byte("3"), "4"}}
+	var scratch [8]uint64
+	ids, err := ScanIDs(rows, scratch[:0])
+	assert.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 3, 4}, ids)
+	assert.Equal(t, []uint64{1, 2, 3, 4}, scratch[:4], "small pages stay in the caller's scratch")
+
+	ids, err = ScanIDs(&scanIDsTestRows{}, nil)
+	assert.NoError(t, err)
+	assert.Nil(t, ids)
+
+	_, err = ScanIDs(&scanIDsTestRows{sources: []any{int64(-1)}}, nil)
+	assert.Error(t, err, "a negative ID is not silently converted")
+
+	_, err = ScanIDs(&scanIDsTestRows{sources: []any{int64(1)}, err: errors.New("boom")}, nil)
+	assert.EqualError(t, err, "boom")
+}
+
+func TestScanIDsAllocations(t *testing.T) {
+	sources := make([]any, 32)
+	for i := range sources {
+		sources[i] = int64(i + 1)
+	}
+	allocs := testing.AllocsPerRun(100, func() {
+		var scratch [32]uint64
+		ids, err := ScanIDs(&scanIDsTestRows{sources: sources}, scratch[:0])
+		if err != nil || len(ids) != 32 {
+			t.Fatal("unexpected result")
+		}
+	})
+	assert.LessOrEqual(t, allocs, 3.0, "the scan target, its argument array and the fake rows")
 }

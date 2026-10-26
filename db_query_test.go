@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,4 +138,81 @@ func TestDBQueryFilterWhereEmptyString(t *testing.T) {
 	clause, params := q.BuildWhereClause()
 	assert.Equal(t, "", clause)
 	assert.Nil(t, params)
+}
+
+func TestDBQueryWriteSelectEmpty(t *testing.T) {
+	var b strings.Builder
+	params := NewQuery().WriteSelect(&b, "SELECT `ID` FROM `t`", false, true, true)
+	assert.Equal(t, "SELECT `ID` FROM `t`", b.String())
+	assert.Nil(t, params)
+}
+
+func TestDBQueryWriteSelectFullQuery(t *testing.T) {
+	age := UintField{Column: "Age"}
+	name := StringField{Column: "Name"}
+	q := NewQuery().Filter(age.Gte(18), name.In("a", "b"), NullableUintField{Column: "Age"}.IsNull().Not()).
+		SortByASC(age).SortByDESC(name).Pager(NewPager(3, 10))
+
+	var b strings.Builder
+	params := q.WriteSelect(&b, "SELECT `ID` FROM `t`", false, true, true)
+	assert.Equal(t, "SELECT `ID` FROM `t` WHERE `Age` >= ? AND `Name` IN (?,?) AND NOT (`Age` IS NULL)"+
+		" ORDER BY `Age` ASC, `Name` DESC LIMIT 20,10", b.String())
+	assert.Equal(t, []any{uint64(18), "a", "b"}, params)
+	assert.Equal(t, 3, cap(params), "parameters are sized up front")
+
+	b.Reset()
+	params = q.WriteSelect(&b, "SELECT COUNT(*) FROM `t`", false, false, false)
+	assert.Equal(t, "SELECT COUNT(*) FROM `t` WHERE `Age` >= ? AND `Name` IN (?,?) AND NOT (`Age` IS NULL)", b.String())
+	assert.Equal(t, []any{uint64(18), "a", "b"}, params)
+}
+
+func TestDBQueryWriteSelectFakeDeleteGuard(t *testing.T) {
+	age := UintField{Column: "Age"}
+
+	var b strings.Builder
+	params := NewQuery().WriteSelect(&b, "SELECT `ID` FROM `t`", true, true, true)
+	assert.Equal(t, "SELECT `ID` FROM `t` WHERE `FakeDelete` = 0", b.String())
+	assert.Nil(t, params)
+
+	b.Reset()
+	params = NewQuery().Filter(age.Gte(18)).WriteSelect(&b, "SELECT `ID` FROM `t`", true, true, true)
+	assert.Equal(t, "SELECT `ID` FROM `t` WHERE `Age` >= ? AND `FakeDelete` = 0", b.String())
+	assert.Equal(t, []any{uint64(18)}, params)
+
+	b.Reset()
+	raw := NewWhere("`Name` = ?", "x").WithFakeDeletes()
+	params = NewQuery().Filter(age.Gte(18)).FilterWhere(raw).WriteSelect(&b, "SELECT `ID` FROM `t`", true, true, true)
+	assert.Equal(t, "SELECT `ID` FROM `t` WHERE `Age` >= ? AND `Name` = ?", b.String())
+	assert.Equal(t, []any{uint64(18), "x"}, params)
+}
+
+type customTestCondition struct{}
+
+func (customTestCondition) ToSQL() (string, []any) { return "`Custom` BETWEEN ? AND ?", []any{1, 2} }
+func (customTestCondition) columnName() string     { return "Custom" }
+func (c customTestCondition) Not() Condition       { return notCondition{inner: c} }
+
+func TestDBQueryWriteSelectCustomCondition(t *testing.T) {
+	var b strings.Builder
+	q := NewQuery().Filter(customTestCondition{}, customTestCondition{}.Not())
+	params := q.WriteSelect(&b, "SELECT `ID` FROM `t`", false, false, false)
+	assert.Equal(t, "SELECT `ID` FROM `t` WHERE `Custom` BETWEEN ? AND ? AND NOT (`Custom` BETWEEN ? AND ?)", b.String())
+	assert.Equal(t, []any{1, 2, 1, 2}, params)
+
+	clause, params := q.BuildWhereClause()
+	assert.Equal(t, "`Custom` BETWEEN ? AND ? AND NOT (`Custom` BETWEEN ? AND ?)", clause)
+	assert.Equal(t, []any{1, 2, 1, 2}, params)
+}
+
+func TestDBQueryWriteSelectAllocations(t *testing.T) {
+	age := UintField{Column: "Age"}
+	q := NewQuery().Filter(age.Gte(18)).SortByASC(age).Pager(NewPager(1, 10))
+	allocs := testing.AllocsPerRun(100, func() {
+		var b strings.Builder
+		params := q.WriteSelect(&b, "SELECT `ID` FROM `t`", true, true, true)
+		if len(params) != 1 || b.Len() == 0 {
+			t.Fatal("unexpected query")
+		}
+	})
+	assert.LessOrEqual(t, allocs, 2.0, "one SQL string and one parameter slice")
 }

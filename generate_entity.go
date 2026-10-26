@@ -39,6 +39,7 @@ func (g *codeGenerator) generateCodeForEntity(schema *entitySchema) error {
 		g.generateGetAll(schema, names)
 	}
 	g.generateNewMethods(schema, names)
+	g.generateRowReaders(schema, names)
 	g.generateSearchOne(schema, names)
 	g.generateSearchMany(schema, names)
 	g.generateSearchManyWithTotal(schema, names)

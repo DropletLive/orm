@@ -3,6 +3,7 @@ package orm
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames) {
@@ -42,11 +43,7 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 		g.addLine("\t\t}")
 		g.addLine("\t}")
 	}
-	selectPrefix := "SELECT `ID`"
-	for _, columnName := range schema.GetColumns()[1:] {
-		selectPrefix += ",`" + columnName + "`"
-	}
-	selectPrefix += fmt.Sprintf(" FROM `%s` WHERE `ID` = ", schema.tableName)
+	selectPrefix := selectAllColumns(schema) + " WHERE `ID` = "
 	where := "orm.NewWhere(query)"
 	if useLiteralID {
 		g.addLine(fmt.Sprintf("\tquery := %q + string(idDigits) + \" LIMIT 1\"", selectPrefix))
@@ -164,11 +161,7 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\t}")
 	}
 	g.addLine("\tif len(pending) > 0 {")
-	selectPrefix := "SELECT `ID`"
-	for _, columnName := range schema.GetColumns()[1:] {
-		selectPrefix += ",`" + columnName + "`"
-	}
-	selectPrefix += fmt.Sprintf(" FROM `%s` WHERE `ID` IN (", schema.tableName)
+	selectPrefix := selectAllColumns(schema) + " WHERE `ID` IN ("
 	g.addLine("\t\tvar b strings.Builder")
 	g.addLine(fmt.Sprintf("\t\tb.Grow(%d + len(pending)*21)", len(selectPrefix)))
 	g.addLine(fmt.Sprintf("\t\tb.WriteString(%q)", selectPrefix))
@@ -536,29 +529,33 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 	}
 
 	// Default fallback: regular MySQL query
-	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
 	g.addLine("\tvar b strings.Builder")
-	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT `ID` FROM `%s`\")", schema.tableName))
-	g.addLine("\tif whereSQL != \"\" {")
-	g.addLine("\t\tb.WriteString(\" WHERE \")")
-	g.addLine("\t\tb.WriteString(whereSQL)")
-	g.addLine("\t}")
-	if schema.hasFakeDelete {
-		g.addLine("\tif !query.IsWithFakeDeletes() {")
-		g.addLine("\t\tif whereSQL != \"\" {")
-		g.addLine("\t\t\tb.WriteString(\" AND `FakeDelete` = 0\")")
-		g.addLine("\t\t} else {")
-		g.addLine("\t\t\tb.WriteString(\" WHERE `FakeDelete` = 0\")")
-		g.addLine("\t\t}")
+	if !schema.hasRedisCache {
+		// Without a Redis tier the row comes straight from the search query:
+		// one round trip instead of SELECT ID followed by GetByID.
+		g.addLine(fmt.Sprintf("\tparams := query.WriteSelect(&b, %q, %t, true, false)", selectAllColumns(schema), schema.hasFakeDelete))
+		g.addLine("\tb.WriteString(\" LIMIT 1\")")
+		g.addLine(fmt.Sprintf("\tsqlRow := &%s{}", names.sqlRowName))
+		g.appendToLine("\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), orm.SQLScanTarget(&sqlRow.F0)")
+		for i := 1; i < len(schema.columnNames); i++ {
+			g.appendToLine(fmt.Sprintf(", orm.SQLScanTarget(&sqlRow.F%d)", i))
+		}
+		g.addLine(")")
+		g.addLine("\tif _err != nil {")
+		g.addLine("\t\treturn nil, _err")
 		g.addLine("\t}")
+		g.addLine("\tif !_found {")
+		g.addLine(fmt.Sprintf("\t\treturn nil, &orm.NotFoundError{Entity: %q}", schema.tableName))
+		g.addLine("\t}")
+		g.addLine("\treturn p.entityFromRow(ctx, sqlRow), nil")
+		g.addLine("}")
+		g.addLine("")
+		return
 	}
-	g.addLine("\tif orderBy := query.BuildOrderClause(); orderBy != \"\" {")
-	g.addLine("\t\tb.WriteByte(' ')")
-	g.addLine("\t\tb.WriteString(orderBy)")
-	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\tparams := query.WriteSelect(&b, \"SELECT `ID` FROM `%s`\", %t, true, false)", schema.tableName, schema.hasFakeDelete))
 	g.addLine("\tb.WriteString(\" LIMIT 1\")")
 	g.addLine("\tvar _id uint64")
-	g.addLine(fmt.Sprintf("\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &_id)"))
+	g.addLine("\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), orm.SQLScanTarget(&_id))")
 	g.addLine("\tif _err != nil {")
 	g.addLine("\t\treturn nil, _err")
 	g.addLine("\t}")
@@ -570,46 +567,89 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 	g.addLine("")
 }
 
+// selectAllColumns returns the "SELECT `ID`,... FROM `table`" prefix of a full-row read.
+func selectAllColumns(schema *entitySchema) string {
+	var b strings.Builder
+	b.WriteString("SELECT `ID`")
+	for _, columnName := range schema.GetColumns()[1:] {
+		b.WriteString(",`" + columnName + "`")
+	}
+	b.WriteString(" FROM `" + schema.tableName + "`")
+	return b.String()
+}
+
+// generateRowReaders emits, for entities without a Redis tier, the helpers that
+// turn full-row search results into entities. The context cache keeps identity:
+// a row whose entity is already in the context yields that instance.
+func (g *codeGenerator) generateRowReaders(schema *entitySchema, names *entityNames) {
+	if schema.hasRedisCache {
+		return
+	}
+	g.addLine(fmt.Sprintf("func (p %s) entityFromRow(ctx orm.Context, sqlRow *%s) *%s {", names.providerNamePrivate, names.sqlRowName, names.entityName))
+	g.addLine("\tif cached := ctx.GetFromContextCache(p.cacheIndex, sqlRow.F0); cached != nil {")
+	g.addLine(fmt.Sprintf("\t\treturn cached.(*%s)", names.entityName))
+	g.addLine("\t}")
+	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, id: sqlRow.F0, originDatabaseValues: sqlRow}", names.entityName))
+	g.addLine("\tctx.SetInContextCache(p.cacheIndex, sqlRow.F0, e)")
+	g.addLine("\treturn e")
+	g.addLine("}")
+	g.addLine("")
+	g.addLine(fmt.Sprintf("func (p %s) readRows(ctx orm.Context, rows orm.Rows, result []*%s) ([]*%s, error) {", names.providerNamePrivate, names.entityName, names.entityName))
+	g.addLine(fmt.Sprintf("\tvar scanArgs [%d]any", len(schema.columnNames)))
+	g.addLine("\tfor rows.Next() {")
+	g.addLine(fmt.Sprintf("\t\tsqlRow := &%s{}", names.sqlRowName))
+	for i := 0; i < len(schema.columnNames); i++ {
+		g.addLine(fmt.Sprintf("\t\tscanArgs[%d] = orm.SQLScanTarget(&sqlRow.F%d)", i, i))
+	}
+	g.addLine("\t\tif err := rows.Scan(scanArgs[:]...); err != nil {")
+	g.addLine("\t\t\treturn nil, err")
+	g.addLine("\t\t}")
+	g.addLine("\t\tresult = append(result, p.entityFromRow(ctx, sqlRow))")
+	g.addLine("\t}")
+	g.addLine("\tif len(result) == 0 {")
+	g.addLine("\t\treturn nil, nil")
+	g.addLine("\t}")
+	g.addLine("\treturn result, nil")
+	g.addLine("}")
+	g.addLine("")
+}
+
+// generateScanIDs emits the ID-scanning tail shared by the SELECT `ID` readers:
+// a small page lives in stack scratch and one scan target serves every row.
+func (g *codeGenerator) generateScanIDs(errorReturn string) {
+	g.addLine("\t// A page of up to 32 IDs needs no heap storage.")
+	g.addLine("\tvar idScratch [32]uint64")
+	g.addLine("\tids, err := orm.ScanIDs(rows, idScratch[:0])")
+	g.addLine("\tif err != nil {")
+	g.addLine("\t\treturn " + errorReturn)
+	g.addLine("\t}")
+}
+
 func (g *codeGenerator) generateSearchMany(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addLine(fmt.Sprintf("func (p %s) SearchMany(ctx orm.Context, query *orm.DBQuery) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
-	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
 	g.addLine("\tvar b strings.Builder")
-	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT `ID` FROM `%s`\")", schema.tableName))
-	g.addLine("\tif whereSQL != \"\" {")
-	g.addLine("\t\tb.WriteString(\" WHERE \")")
-	g.addLine("\t\tb.WriteString(whereSQL)")
-	g.addLine("\t}")
-	if schema.hasFakeDelete {
-		g.addLine("\tif !query.IsWithFakeDeletes() {")
-		g.addLine("\t\tif whereSQL != \"\" {")
-		g.addLine("\t\t\tb.WriteString(\" AND `FakeDelete` = 0\")")
-		g.addLine("\t\t} else {")
-		g.addLine("\t\t\tb.WriteString(\" WHERE `FakeDelete` = 0\")")
-		g.addLine("\t\t}")
+	if !schema.hasRedisCache {
+		// Without a Redis tier the rows come straight from the search query:
+		// one round trip instead of SELECT ID followed by GetByIDs.
+		g.addLine(fmt.Sprintf("\tparams := query.WriteSelect(&b, %q, %t, true, true)", selectAllColumns(schema), schema.hasFakeDelete))
+		g.addLine("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, b.String(), params...)")
+		g.addLine("\tif err != nil {")
+		g.addLine("\t\treturn nil, err")
 		g.addLine("\t}")
+		g.addLine("\tdefer cl()")
+		g.addLine(fmt.Sprintf("\treturn p.readRows(ctx, rows, make([]*%s, 0, query.PageSize()))", names.entityName))
+		g.addLine("}")
+		g.addLine("")
+		return
 	}
-	g.addLine("\tif orderBy := query.BuildOrderClause(); orderBy != \"\" {")
-	g.addLine("\t\tb.WriteByte(' ')")
-	g.addLine("\t\tb.WriteString(orderBy)")
-	g.addLine("\t}")
-	g.addLine("\tif limit := query.BuildLimitClause(); limit != \"\" {")
-	g.addLine("\t\tb.WriteByte(' ')")
-	g.addLine("\t\tb.WriteString(limit)")
-	g.addLine("\t}")
-	g.addLine(fmt.Sprintf("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, b.String(), params...)"))
+	g.addLine(fmt.Sprintf("\tparams := query.WriteSelect(&b, \"SELECT `ID` FROM `%s`\", %t, true, true)", schema.tableName, schema.hasFakeDelete))
+	g.addLine("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, b.String(), params...)")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, err")
 	g.addLine("\t}")
 	g.addLine("\tdefer cl()")
-	g.addLine("\tvar ids []uint64")
-	g.addLine("\tfor rows.Next() {")
-	g.addLine("\t\tvar id uint64")
-	g.addLine("\t\tif err = rows.Scan(&id); err != nil {")
-	g.addLine("\t\t\treturn nil, err")
-	g.addLine("\t\t}")
-	g.addLine("\t\tids = append(ids, id)")
-	g.addLine("\t}")
+	g.generateScanIDs("nil, err")
 	g.addLine("\treturn p.GetByIDs(ctx, ids...)")
 	g.addLine("}")
 	g.addLine("")
@@ -618,25 +658,10 @@ func (g *codeGenerator) generateSearchMany(schema *entitySchema, names *entityNa
 func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addLine(fmt.Sprintf("func (p %s) SearchManyWithTotal(ctx orm.Context, query *orm.DBQuery) ([]*%s, int, error) {", names.providerNamePrivate, names.entityName))
-	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
-	g.addLine("\tvar whereClause string")
-	g.addLine("\tif whereSQL != \"\" {")
-	g.addLine("\t\twhereClause = \" WHERE \" + whereSQL")
-	g.addLine("\t}")
-	if schema.hasFakeDelete {
-		g.addLine("\tif !query.IsWithFakeDeletes() {")
-		g.addLine("\t\tif whereClause != \"\" {")
-		g.addLine("\t\t\twhereClause += \" AND `FakeDelete` = 0\"")
-		g.addLine("\t\t} else {")
-		g.addLine("\t\t\twhereClause = \" WHERE `FakeDelete` = 0\"")
-		g.addLine("\t\t}")
-		g.addLine("\t}")
-	}
 	g.addLine("\tvar b strings.Builder")
-	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT COUNT(*) FROM `%s`\")", schema.tableName))
-	g.addLine("\tb.WriteString(whereClause)")
+	g.addLine(fmt.Sprintf("\tparams := query.WriteSelect(&b, \"SELECT COUNT(*) FROM `%s`\", %t, false, false)", schema.tableName, schema.hasFakeDelete))
 	g.addLine("\tvar totalRows int")
-	g.addLine(fmt.Sprintf("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &totalRows)"))
+	g.addLine("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &totalRows)")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, 0, err")
 	g.addLine("\t}")
@@ -644,29 +669,29 @@ func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names 
 	g.addLine("\t\treturn nil, 0, nil")
 	g.addLine("\t}")
 	g.addLine("\tb.Reset()")
-	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT `ID` FROM `%s`\")", schema.tableName))
-	g.addLine("\tb.WriteString(whereClause)")
-	g.addLine("\tif orderBy := query.BuildOrderClause(); orderBy != \"\" {")
-	g.addLine("\t\tb.WriteByte(' ')")
-	g.addLine("\t\tb.WriteString(orderBy)")
-	g.addLine("\t}")
-	g.addLine("\tif limit := query.BuildLimitClause(); limit != \"\" {")
-	g.addLine("\t\tb.WriteByte(' ')")
-	g.addLine("\t\tb.WriteString(limit)")
-	g.addLine("\t}")
-	g.addLine(fmt.Sprintf("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, b.String(), params...)"))
+	if !schema.hasRedisCache {
+		g.addLine(fmt.Sprintf("\tparams = query.WriteSelect(&b, %q, %t, true, true)", selectAllColumns(schema), schema.hasFakeDelete))
+		g.addLine("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, b.String(), params...)")
+		g.addLine("\tif err != nil {")
+		g.addLine("\t\treturn nil, 0, err")
+		g.addLine("\t}")
+		g.addLine("\tdefer cl()")
+		g.addLine(fmt.Sprintf("\tentities, err := p.readRows(ctx, rows, make([]*%s, 0, query.PageSize()))", names.entityName))
+		g.addLine("\tif err != nil {")
+		g.addLine("\t\treturn nil, 0, err")
+		g.addLine("\t}")
+		g.addLine("\treturn entities, totalRows, nil")
+		g.addLine("}")
+		g.addLine("")
+		return
+	}
+	g.addLine(fmt.Sprintf("\tparams = query.WriteSelect(&b, \"SELECT `ID` FROM `%s`\", %t, true, true)", schema.tableName, schema.hasFakeDelete))
+	g.addLine("\trows, cl, err := ctx.DB(p.dbCode).Query(ctx, b.String(), params...)")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, 0, err")
 	g.addLine("\t}")
 	g.addLine("\tdefer cl()")
-	g.addLine("\tvar ids []uint64")
-	g.addLine("\tfor rows.Next() {")
-	g.addLine("\t\tvar id uint64")
-	g.addLine("\t\tif err = rows.Scan(&id); err != nil {")
-	g.addLine("\t\t\treturn nil, 0, err")
-	g.addLine("\t\t}")
-	g.addLine("\t\tids = append(ids, id)")
-	g.addLine("\t}")
+	g.generateScanIDs("nil, 0, err")
 	g.addLine("\tentities, err := p.GetByIDs(ctx, ids...)")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, 0, err")
@@ -679,25 +704,10 @@ func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names 
 func (g *codeGenerator) generateCount(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addLine(fmt.Sprintf("func (p %s) Count(ctx orm.Context, query *orm.DBQuery) (int, error) {", names.providerNamePrivate))
-	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
-	g.addLine("\tvar whereClause string")
-	g.addLine("\tif whereSQL != \"\" {")
-	g.addLine("\t\twhereClause = \" WHERE \" + whereSQL")
-	g.addLine("\t}")
-	if schema.hasFakeDelete {
-		g.addLine("\tif !query.IsWithFakeDeletes() {")
-		g.addLine("\t\tif whereClause != \"\" {")
-		g.addLine("\t\t\twhereClause += \" AND `FakeDelete` = 0\"")
-		g.addLine("\t\t} else {")
-		g.addLine("\t\t\twhereClause = \" WHERE `FakeDelete` = 0\"")
-		g.addLine("\t\t}")
-		g.addLine("\t}")
-	}
 	g.addLine("\tvar b strings.Builder")
-	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT COUNT(*) FROM `%s`\")", schema.tableName))
-	g.addLine("\tb.WriteString(whereClause)")
+	g.addLine(fmt.Sprintf("\tparams := query.WriteSelect(&b, \"SELECT COUNT(*) FROM `%s`\", %t, false, false)", schema.tableName, schema.hasFakeDelete))
 	g.addLine("\tvar count int")
-	g.addLine(fmt.Sprintf("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &count)"))
+	g.addLine("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &count)")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn 0, err")
 	g.addLine("\t}")
@@ -1002,16 +1012,8 @@ func (g *codeGenerator) generateGetAll(schema *entitySchema, names *entityNames)
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, err")
 	g.addLine("\t}")
-	g.addLine("\tvar ids []uint64")
-	g.addLine("\tfor rows.Next() {")
-	g.addLine("\t\tvar id uint64")
-	g.addLine("\t\tif err = rows.Scan(&id); err != nil {")
-	g.addLine("\t\t\tcl()")
-	g.addLine("\t\t\treturn nil, err")
-	g.addLine("\t\t}")
-	g.addLine("\t\tids = append(ids, id)")
-	g.addLine("\t}")
-	g.addLine("\tcl()")
+	g.addLine("\tdefer cl()")
+	g.generateScanIDs("nil, err")
 
 	// The stamp is always element 0, so an empty table still caches as a one-element list and is
 	// told apart from a cold key. It also means RowCacheRewriteScript never RPUSHes nothing.

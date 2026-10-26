@@ -90,6 +90,11 @@ func (r *registry) Validate() (Engine, error) {
 			sourceURI += "?"
 		}
 		sourceURI += "parseTime=true&loc=UTC"
+		// Client-side interpolation sends a parametrized query in one round trip;
+		// server-side prepared statements need prepare and execute round trips.
+		if !v.GetOptions().ServerSidePreparedStatements && !strings.Contains(sourceURI, "interpolateParams=") {
+			sourceURI += "&interpolateParams=true"
+		}
 		db, err := sql.Open("mysql", sourceURI)
 		if err != nil {
 			return nil, err
@@ -464,6 +469,13 @@ type MySQLOptions struct {
 	DefaultEncoding    string
 	DefaultCollate     string
 	IgnoredTables      []string
+	// ServerSidePreparedStatements keeps go-sql-driver's default of preparing
+	// every parametrized query on the server. By default the ORM adds
+	// interpolateParams=true to the DSN (unless the DSN sets it), so a query
+	// with parameters costs one round trip instead of prepare and execute.
+	// The driver refuses interpolation for the multibyte connection charsets
+	// big5, cp932, gb2312, gbk and sjis; set this for such DSNs.
+	ServerSidePreparedStatements bool
 }
 
 func (r *registry) RegisterMySQL(dataSourceName string, poolCode string, poolOptions *MySQLOptions) {
