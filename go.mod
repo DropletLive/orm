@@ -1,4 +1,4 @@
-module github.com/latolukasz/fluxaorm/v2
+module github.com/DropletLive/orm
 
 go 1.26.0
 

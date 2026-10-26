@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"crypto/sha256"
@@ -332,7 +332,7 @@ func (e *entitySchema) init(registry *registry, entityType reflect.Type) error {
 	// publishing.
 	if e.getTag("dirty", "", "") != "" {
 		return fmt.Errorf(
-			"entity '%s' uses `orm:\"dirty=...\"`, which no longer exists; tag it `orm:\"cdc\"` and declare the entity on a fluxaorm.ConsumerDef instead",
+			"entity '%s' uses `orm:\"dirty=...\"`, which no longer exists; tag it `orm:\"cdc\"` and declare the entity on a orm.ConsumerDef instead",
 			entityType.Name())
 	}
 	e.cdc = e.getTag("cdc", "true", "") == "true"

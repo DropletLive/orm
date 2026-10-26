@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 			break
 		}
 	}
-	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx fluxaorm.Context, id uint64) (entity *%s, err error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) GetByID(ctx orm.Context, id uint64) (entity *%s, err error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\tif cached := ctx.GetFromContextCache(p.cacheIndex, id); cached != nil {")
 	g.addLine(fmt.Sprintf("\t\treturn cached.(*%s), nil", names.entityName))
 	g.addLine("\t}")
@@ -33,7 +33,7 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 		g.addLine("\t\t\treturn nil, err")
 		g.addLine("\t\t}")
 		g.addLine("\t\tif len(redisValues) == 1 && redisValues[0] == \"\" {")
-		g.addLine(fmt.Sprintf("\t\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q, ID: id}", schema.tableName))
+		g.addLine(fmt.Sprintf("\t\t\treturn nil, &orm.NotFoundError{Entity: %q, ID: id}", schema.tableName))
 		g.addLine("\t\t}")
 		g.addLine("\t\tif len(redisValues) > 1 && redisValues[0] == p.redisCacheStamp {")
 		g.addLine(fmt.Sprintf("\t\t\te := &%s{ctx: ctx, id: id, originRedisValues: redisValues[1:]}", names.entityName))
@@ -47,16 +47,16 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 		selectPrefix += ",`" + columnName + "`"
 	}
 	selectPrefix += fmt.Sprintf(" FROM `%s` WHERE `ID` = ", schema.tableName)
-	where := "fluxaorm.NewWhere(query)"
+	where := "orm.NewWhere(query)"
 	if useLiteralID {
 		g.addLine(fmt.Sprintf("\tquery := %q + string(idDigits) + \" LIMIT 1\"", selectPrefix))
 	} else {
-		where = fmt.Sprintf("fluxaorm.NewWhere(%q, id)", selectPrefix+"? LIMIT 1")
+		where = fmt.Sprintf("orm.NewWhere(%q, id)", selectPrefix+"? LIMIT 1")
 	}
 	g.addLine(fmt.Sprintf("\tsqlRow := &%s{}", names.sqlRowName))
-	g.appendToLine(fmt.Sprintf("\tfound, err := ctx.DB(%s.dbCode).QueryRow(ctx, %s, fluxaorm.SQLScanTarget(&sqlRow.F0)", names.providerName, where))
+	g.appendToLine(fmt.Sprintf("\tfound, err := ctx.DB(%s.dbCode).QueryRow(ctx, %s, orm.SQLScanTarget(&sqlRow.F0)", names.providerName, where))
 	for i := 1; i < len(schema.columnNames); i++ {
-		g.appendToLine(fmt.Sprintf(", fluxaorm.SQLScanTarget(&sqlRow.F%d)", i))
+		g.appendToLine(fmt.Sprintf(", orm.SQLScanTarget(&sqlRow.F%d)", i))
 	}
 	g.addLine(")")
 	g.addLine("\tif err != nil {")
@@ -65,19 +65,19 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 	g.addLine("\tif !found {")
 	if schema.hasRedisCache {
 		g.addLine("\t\tif _useCache {")
-		g.addLine("\t\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, fluxaorm.RowCacheRewriteScript,")
-		g.addLine("\t\t\t\t[]string{redisKey}, int(fluxaorm.EntityCacheTTL.Seconds()), \"\")")
+		g.addLine("\t\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, orm.RowCacheRewriteScript,")
+		g.addLine("\t\t\t\t[]string{redisKey}, int(orm.EntityCacheTTL.Seconds()), \"\")")
 		g.addLine("\t\t\tif err != nil {")
 		g.addLine("\t\t\t\treturn nil, err")
 		g.addLine("\t\t\t}")
 		g.addLine("\t\t}")
 	}
-	g.addLine(fmt.Sprintf("\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q, ID: id}", schema.tableName))
+	g.addLine(fmt.Sprintf("\t\treturn nil, &orm.NotFoundError{Entity: %q, ID: id}", schema.tableName))
 	g.addLine("\t}")
 	if schema.hasRedisCache {
 		g.addLine("\tif _useCache {")
-		g.addLine("\t\t_evalArgs := append([]any{int(fluxaorm.EntityCacheTTL.Seconds())}, sqlRow.redisValues()...)")
-		g.addLine("\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, fluxaorm.RowCacheRewriteScript, []string{redisKey}, _evalArgs...)")
+		g.addLine("\t\t_evalArgs := append([]any{int(orm.EntityCacheTTL.Seconds())}, sqlRow.redisValues()...)")
+		g.addLine("\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, orm.RowCacheRewriteScript, []string{redisKey}, _evalArgs...)")
 		g.addLine("\t\tif err != nil {")
 		g.addLine("\t\t\treturn nil, err")
 		g.addLine("\t\t}")
@@ -93,7 +93,7 @@ func (g *codeGenerator) generateGetByID(schema *entitySchema, names *entityNames
 func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) GetByIDs(ctx fluxaorm.Context, id ...uint64) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) GetByIDs(ctx orm.Context, id ...uint64) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\tif len(id) == 0 { return nil, nil }")
 	g.addLine("\t// Small batches need no heap scratch; large batches retain linear lookup cost.")
 	g.addLine("\tvar idScratch [32]uint64")
@@ -132,12 +132,12 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\tuseCache := !ctx.InTransaction()")
 		g.addLine("\tif len(pending) > 0 && useCache {")
 		g.addLine("\t\tredisPipeline := ctx.RedisPipeLine(p.redisCode)")
-		g.addLine("\t\tvar resultScratch [32]fluxaorm.PipeLineSlice")
+		g.addLine("\t\tvar resultScratch [32]orm.PipeLineSlice")
 		g.addLine("\t\tvar keyScratch [32]string")
 		g.addLine("\t\tredisResults := resultScratch[:]")
 		g.addLine("\t\tkeys := keyScratch[:]")
 		g.addLine("\t\tif len(pending) > len(resultScratch) {")
-		g.addLine("\t\t\tredisResults = make([]fluxaorm.PipeLineSlice, len(pending))")
+		g.addLine("\t\t\tredisResults = make([]orm.PipeLineSlice, len(pending))")
 		g.addLine("\t\t\tkeys = make([]string, len(pending))")
 		g.addLine("\t\t}")
 		g.addLine("\t\tredisResults = redisResults[:len(pending)]")
@@ -182,14 +182,14 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 	g.addLine("\t\tif err != nil { return nil, err }")
 	g.addLine("\t\tdefer cl()")
 	if schema.hasRedisCache {
-		g.addLine("\t\tvar cachePipeline *fluxaorm.RedisPipeLine")
+		g.addLine("\t\tvar cachePipeline *orm.RedisPipeLine")
 		g.addLine("\t\tif useCache { cachePipeline = ctx.RedisPipeLine(p.redisCode) }")
 	}
 	g.addLine(fmt.Sprintf("\t\tvar scanArgs [%d]any", len(schema.columnNames)))
 	g.addLine("\t\tfor rows.Next() {")
 	g.addLine(fmt.Sprintf("\t\t\tsqlRow := &%s{}", names.sqlRowName))
 	for i := 0; i < len(schema.columnNames); i++ {
-		g.addLine(fmt.Sprintf("\t\t\tscanArgs[%d] = fluxaorm.SQLScanTarget(&sqlRow.F%d)", i, i))
+		g.addLine(fmt.Sprintf("\t\t\tscanArgs[%d] = orm.SQLScanTarget(&sqlRow.F%d)", i, i))
 	}
 	g.addLine("\t\t\terr = rows.Scan(scanArgs[:]...)")
 	g.addLine("\t\t\tif err != nil { return nil, err }")
@@ -201,7 +201,7 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\t\t\t\tkey := p.redisCachePrefix + string(strconv.AppendUint(idBuffer[:0], sqlRow.F0, 10))")
 		g.addLine("\t\t\t\tcachePipeline.Del(key)")
 		g.addLine("\t\t\t\tcachePipeline.RPush(key, sqlRow.redisValues()...)")
-		g.addLine("\t\t\t\tcachePipeline.Expire(key, fluxaorm.EntityCacheTTL)")
+		g.addLine("\t\t\t\tcachePipeline.Expire(key, orm.EntityCacheTTL)")
 		g.addLine("\t\t\t}")
 	}
 	g.addLine("\t\t}")
@@ -212,7 +212,7 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\t\t\t\tkey := p.redisCachePrefix + string(strconv.AppendUint(idBuffer[:0], uniqueIDs[pos], 10))")
 		g.addLine("\t\t\t\tcachePipeline.Del(key)")
 		g.addLine("\t\t\t\tcachePipeline.RPush(key, \"\")")
-		g.addLine("\t\t\t\tcachePipeline.Expire(key, fluxaorm.EntityCacheTTL)")
+		g.addLine("\t\t\t\tcachePipeline.Expire(key, orm.EntityCacheTTL)")
 		g.addLine("\t\t\t}")
 		g.addLine("\t\t\tif _, err = cachePipeline.Exec(ctx); err != nil { return nil, err }")
 		g.addLine("\t\t}")
@@ -227,7 +227,7 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 }
 
 func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNames) {
-	g.addLine(fmt.Sprintf("func (p %s) New(ctx fluxaorm.Context) *%s  {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) New(ctx orm.Context) *%s  {", names.providerNamePrivate, names.entityName))
 	g.addLine(fmt.Sprintf("\treturn p.NewWithID(ctx, ctx.Engine().NextID())"))
 	g.addLine("}")
 	g.addLine("")
@@ -236,7 +236,7 @@ func (g *codeGenerator) generateNewMethods(schema *entitySchema, names *entityNa
 	for _, d := range defaults {
 		sqlRowInit += fmt.Sprintf(", F%d: %q", d.fIndex, d.defaultValue)
 	}
-	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx fluxaorm.Context, id uint64) *%s  {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) NewWithID(ctx orm.Context, id uint64) *%s  {", names.providerNamePrivate, names.entityName))
 	g.addLine(fmt.Sprintf("\te := &%s{ctx: ctx, new: true, id: id, originDatabaseValues: &%s{%s}}", names.entityName, names.sqlRowName, sqlRowInit))
 	g.addLine(fmt.Sprintf("\te.ctx.SetInContextCache(%s.cacheIndex, id, e)", names.providerName))
 	if schema.hasRedisCache {
@@ -330,7 +330,7 @@ func collectRequiredEnumDefaultsRecursive(fields *tableFields, fIndex *int, resu
 func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) SearchOne(ctx fluxaorm.Context, query *fluxaorm.DBQuery) (*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchOne(ctx orm.Context, query *orm.DBQuery) (*%s, error) {", names.providerNamePrivate, names.entityName))
 
 	// Generate smart unique index detection blocks for cached unique indexes
 	// Sort index names for deterministic output
@@ -374,8 +374,8 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 			g.addLine(fmt.Sprintf("\tif len(_conditions) == %d {", colCount))
 			for _, idx := range indexes {
 				col := idx.columns[0]
-				g.addLine(fmt.Sprintf("\t\tif _c0, _ok := _conditions[0].(fluxaorm.EqCondition); _ok && _c0.ColumnName() == %q {", col))
-				g.addLine(fmt.Sprintf("\t\t\t_redisKey := p.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(_c0.EqValue())", UniqueIndexKeySegment(idx.name, idx.columns)))
+				g.addLine(fmt.Sprintf("\t\tif _c0, _ok := _conditions[0].(orm.EqCondition); _ok && _c0.ColumnName() == %q {", col))
+				g.addLine(fmt.Sprintf("\t\t\t_redisKey := p.redisCachePrefix + %q + orm.UniqueIndexKeyHash(_c0.EqValue())", UniqueIndexKeySegment(idx.name, idx.columns)))
 				// Redis GET
 				g.addLine("\t\t\t_useCache := !ctx.InTransaction()")
 				g.addLine("\t\t\tif _useCache {")
@@ -389,7 +389,7 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 				g.addLine("\t\t\t\t\t\treturn nil, _parseErr")
 				g.addLine("\t\t\t\t\t}")
 				g.addLine("\t\t\t\t\t_vEntity, _vErr := p.GetByID(ctx, _cachedID)")
-				g.addLine("\t\t\t\t\t_, _vMissing := errors.AsType[*fluxaorm.NotFoundError](_vErr)")
+				g.addLine("\t\t\t\t\t_, _vMissing := errors.AsType[*orm.NotFoundError](_vErr)")
 				g.addLine("\t\t\t\t\tif _vErr != nil && !_vMissing {")
 				g.addLine("\t\t\t\t\t\treturn nil, _vErr")
 				g.addLine("\t\t\t\t\t}")
@@ -408,17 +408,17 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 					whereClause += " AND `FakeDelete` = 0"
 				}
 				g.addLine(fmt.Sprintf("\t\t\tvar _foundID uint64"))
-				g.addLine(fmt.Sprintf("\t\t\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(\"SELECT `ID` FROM `%s` WHERE %s LIMIT 1\", _c0.EqValue()), &_foundID)", schema.tableName, whereClause))
+				g.addLine(fmt.Sprintf("\t\t\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(\"SELECT `ID` FROM `%s` WHERE %s LIMIT 1\", _c0.EqValue()), &_foundID)", schema.tableName, whereClause))
 				g.addLine("\t\t\tif _err != nil {")
 				g.addLine("\t\t\t\treturn nil, _err")
 				g.addLine("\t\t\t}")
 				g.addLine("\t\t\tif !_found {")
-				g.addLine(fmt.Sprintf("\t\t\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q}", schema.tableName))
+				g.addLine(fmt.Sprintf("\t\t\t\treturn nil, &orm.NotFoundError{Entity: %q}", schema.tableName))
 				g.addLine("\t\t\t}")
 				// Cache in Redis
 				g.addLine("\t\t\tif _useCache {")
 				g.addLine("\t\t\t\t_redisPipeline := ctx.RedisPipeLine(p.redisCode)")
-				g.addLine("\t\t\t\t_redisPipeline.Set(_redisKey, strconv.FormatUint(_foundID, 10), fluxaorm.EntityCacheTTL)")
+				g.addLine("\t\t\t\t_redisPipeline.Set(_redisKey, strconv.FormatUint(_foundID, 10), orm.EntityCacheTTL)")
 				g.addLine("\t\t\t\t_, _err = _redisPipeline.Exec(ctx)")
 				g.addLine("\t\t\t\tif _err != nil {")
 				g.addLine("\t\t\t\t\treturn nil, _err")
@@ -430,10 +430,10 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 			g.addLine("\t}")
 		} else {
 			g.addLine(fmt.Sprintf("\tif len(_conditions) == %d {", colCount))
-			g.addLine(fmt.Sprintf("\t\t_cols := make(map[string]fluxaorm.EqCondition, %d)", colCount))
+			g.addLine(fmt.Sprintf("\t\t_cols := make(map[string]orm.EqCondition, %d)", colCount))
 			g.addLine("\t\t_allEq := true")
 			g.addLine("\t\tfor _, _c := range _conditions {")
-			g.addLine("\t\t\tif _eq, _ok := _c.(fluxaorm.EqCondition); _ok {")
+			g.addLine("\t\t\tif _eq, _ok := _c.(orm.EqCondition); _ok {")
 			g.addLine("\t\t\t\t_cols[_eq.ColumnName()] = _eq")
 			g.addLine("\t\t\t} else {")
 			g.addLine("\t\t\t\t_allEq = false")
@@ -467,7 +467,7 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 					}
 					args += fmt.Sprintf("_c%s.EqValue()", g.capitalizeFirst(col))
 				}
-				g.addLine(fmt.Sprintf("\t\t\t\t_redisKey := p.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(%s)", UniqueIndexKeySegment(idx.name, idx.columns), args))
+				g.addLine(fmt.Sprintf("\t\t\t\t_redisKey := p.redisCachePrefix + %q + orm.UniqueIndexKeyHash(%s)", UniqueIndexKeySegment(idx.name, idx.columns), args))
 				// Redis GET
 				g.addLine("\t\t\t\t_useCache := !ctx.InTransaction()")
 				g.addLine("\t\t\t\tif _useCache {")
@@ -481,7 +481,7 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 				g.addLine("\t\t\t\t\t\t\treturn nil, _parseErr")
 				g.addLine("\t\t\t\t\t\t}")
 				g.addLine("\t\t\t\t\t\t_vEntity, _vErr := p.GetByID(ctx, _cachedID)")
-				g.addLine("\t\t\t\t\t\t_, _vMissing := errors.AsType[*fluxaorm.NotFoundError](_vErr)")
+				g.addLine("\t\t\t\t\t\t_, _vMissing := errors.AsType[*orm.NotFoundError](_vErr)")
 				g.addLine("\t\t\t\t\t\tif _vErr != nil && !_vMissing {")
 				g.addLine("\t\t\t\t\t\t\treturn nil, _vErr")
 				g.addLine("\t\t\t\t\t\t}")
@@ -510,17 +510,17 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 					whereClause += " AND `FakeDelete` = 0"
 				}
 				g.addLine("\t\t\t\tvar _foundID uint64")
-				g.addLine(fmt.Sprintf("\t\t\t\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(\"SELECT `ID` FROM `%s` WHERE %s LIMIT 1\", %s), &_foundID)", schema.tableName, whereClause, sqlArgs))
+				g.addLine(fmt.Sprintf("\t\t\t\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(\"SELECT `ID` FROM `%s` WHERE %s LIMIT 1\", %s), &_foundID)", schema.tableName, whereClause, sqlArgs))
 				g.addLine("\t\t\t\tif _err != nil {")
 				g.addLine("\t\t\t\t\treturn nil, _err")
 				g.addLine("\t\t\t\t}")
 				g.addLine("\t\t\t\tif !_found {")
-				g.addLine(fmt.Sprintf("\t\t\t\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q}", schema.tableName))
+				g.addLine(fmt.Sprintf("\t\t\t\t\treturn nil, &orm.NotFoundError{Entity: %q}", schema.tableName))
 				g.addLine("\t\t\t\t}")
 				// Cache in Redis
 				g.addLine("\t\t\t\tif _useCache {")
 				g.addLine("\t\t\t\t\t_redisPipeline := ctx.RedisPipeLine(p.redisCode)")
-				g.addLine("\t\t\t\t\t_redisPipeline.Set(_redisKey, strconv.FormatUint(_foundID, 10), fluxaorm.EntityCacheTTL)")
+				g.addLine("\t\t\t\t\t_redisPipeline.Set(_redisKey, strconv.FormatUint(_foundID, 10), orm.EntityCacheTTL)")
 				g.addLine("\t\t\t\t\t_, _err = _redisPipeline.Exec(ctx)")
 				g.addLine("\t\t\t\t\tif _err != nil {")
 				g.addLine("\t\t\t\t\t\treturn nil, _err")
@@ -558,12 +558,12 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 	g.addLine("\t}")
 	g.addLine("\tb.WriteString(\" LIMIT 1\")")
 	g.addLine("\tvar _id uint64")
-	g.addLine(fmt.Sprintf("\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(b.String(), params...), &_id)"))
+	g.addLine(fmt.Sprintf("\t_found, _err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &_id)"))
 	g.addLine("\tif _err != nil {")
 	g.addLine("\t\treturn nil, _err")
 	g.addLine("\t}")
 	g.addLine("\tif !_found {")
-	g.addLine(fmt.Sprintf("\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q}", schema.tableName))
+	g.addLine(fmt.Sprintf("\t\treturn nil, &orm.NotFoundError{Entity: %q}", schema.tableName))
 	g.addLine("\t}")
 	g.addLine("\treturn p.GetByID(ctx, _id)")
 	g.addLine("}")
@@ -572,7 +572,7 @@ func (g *codeGenerator) generateSearchOne(schema *entitySchema, names *entityNam
 
 func (g *codeGenerator) generateSearchMany(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
-	g.addLine(fmt.Sprintf("func (p %s) SearchMany(ctx fluxaorm.Context, query *fluxaorm.DBQuery) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchMany(ctx orm.Context, query *orm.DBQuery) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
 	g.addLine("\tvar b strings.Builder")
 	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT `ID` FROM `%s`\")", schema.tableName))
@@ -617,7 +617,7 @@ func (g *codeGenerator) generateSearchMany(schema *entitySchema, names *entityNa
 
 func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
-	g.addLine(fmt.Sprintf("func (p %s) SearchManyWithTotal(ctx fluxaorm.Context, query *fluxaorm.DBQuery) ([]*%s, int, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchManyWithTotal(ctx orm.Context, query *orm.DBQuery) ([]*%s, int, error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
 	g.addLine("\tvar whereClause string")
 	g.addLine("\tif whereSQL != \"\" {")
@@ -636,7 +636,7 @@ func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names 
 	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT COUNT(*) FROM `%s`\")", schema.tableName))
 	g.addLine("\tb.WriteString(whereClause)")
 	g.addLine("\tvar totalRows int")
-	g.addLine(fmt.Sprintf("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(b.String(), params...), &totalRows)"))
+	g.addLine(fmt.Sprintf("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &totalRows)"))
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, 0, err")
 	g.addLine("\t}")
@@ -678,7 +678,7 @@ func (g *codeGenerator) generateSearchManyWithTotal(schema *entitySchema, names 
 
 func (g *codeGenerator) generateCount(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
-	g.addLine(fmt.Sprintf("func (p %s) Count(ctx fluxaorm.Context, query *fluxaorm.DBQuery) (int, error) {", names.providerNamePrivate))
+	g.addLine(fmt.Sprintf("func (p %s) Count(ctx orm.Context, query *orm.DBQuery) (int, error) {", names.providerNamePrivate))
 	g.addLine("\twhereSQL, params := query.BuildWhereClause()")
 	g.addLine("\tvar whereClause string")
 	g.addLine("\tif whereSQL != \"\" {")
@@ -697,7 +697,7 @@ func (g *codeGenerator) generateCount(schema *entitySchema, names *entityNames) 
 	g.addLine(fmt.Sprintf("\tb.WriteString(\"SELECT COUNT(*) FROM `%s`\")", schema.tableName))
 	g.addLine("\tb.WriteString(whereClause)")
 	g.addLine("\tvar count int")
-	g.addLine(fmt.Sprintf("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, fluxaorm.NewWhere(b.String(), params...), &count)"))
+	g.addLine(fmt.Sprintf("\t_, err := ctx.DB(p.dbCode).QueryRow(ctx, orm.NewWhere(b.String(), params...), &count)"))
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn 0, err")
 	g.addLine("\t}")
@@ -709,13 +709,13 @@ func (g *codeGenerator) generateCount(schema *entitySchema, names *entityNames) 
 func (g *codeGenerator) generateSearchOneInRedis(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) SearchOneInRedis(ctx fluxaorm.Context, query *fluxaorm.RedisSearchQuery) (*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchOneInRedis(ctx orm.Context, query *orm.RedisSearchQuery) (*%s, error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, query.BuildQueryString(), query.BuildSearchOptions(0, 1))")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, err")
 	g.addLine("\t}")
 	g.addLine("\tif len(result.Docs) == 0 {")
-	g.addLine(fmt.Sprintf("\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q}", schema.tableName))
+	g.addLine(fmt.Sprintf("\t\treturn nil, &orm.NotFoundError{Entity: %q}", schema.tableName))
 	g.addLine("\t}")
 	g.addLine("\tid, err := strconv.ParseUint(strings.TrimPrefix(result.Docs[0].ID, p.redisSearchPrefix), 10, 64)")
 	g.addLine("\tif err != nil {")
@@ -726,7 +726,7 @@ func (g *codeGenerator) generateSearchOneInRedis(schema *entitySchema, names *en
 	g.addLine("\t\treturn nil, err")
 	g.addLine("\t}")
 	g.addLine("\tif len(entities) == 0 {")
-	g.addLine(fmt.Sprintf("\t\treturn nil, &fluxaorm.NotFoundError{Entity: %q}", schema.tableName))
+	g.addLine(fmt.Sprintf("\t\treturn nil, &orm.NotFoundError{Entity: %q}", schema.tableName))
 	g.addLine("\t}")
 	g.addLine("\treturn entities[0], nil")
 	g.addLine("}")
@@ -736,7 +736,7 @@ func (g *codeGenerator) generateSearchOneInRedis(schema *entitySchema, names *en
 func (g *codeGenerator) generateSearchManyInRedis(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) SearchManyInRedis(ctx fluxaorm.Context, query *fluxaorm.RedisSearchQuery) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchManyInRedis(ctx orm.Context, query *orm.RedisSearchQuery) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\toffset, count := query.GetPagerOffsetCount()")
 	g.addLine("\tresult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, query.BuildQueryString(), query.BuildSearchOptions(offset, count))")
 	g.addLine("\tif err != nil {")
@@ -761,7 +761,7 @@ func (g *codeGenerator) generateSearchManyInRedis(schema *entitySchema, names *e
 func (g *codeGenerator) generateSearchManyInRedisWithTotal(schema *entitySchema, names *entityNames) {
 	g.addImport("strings")
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) SearchManyInRedisWithTotal(ctx fluxaorm.Context, query *fluxaorm.RedisSearchQuery) ([]*%s, int, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) SearchManyInRedisWithTotal(ctx orm.Context, query *orm.RedisSearchQuery) ([]*%s, int, error) {", names.providerNamePrivate, names.entityName))
 	g.addLine("\tcountResult, err := ctx.Engine().Redis(p.redisSearchCode).FTSearch(ctx, p.redisSearchIndex, query.BuildQueryString(), query.BuildSearchOptions(0, 0))")
 	g.addLine("\tif err != nil {")
 	g.addLine("\t\treturn nil, 0, err")
@@ -797,7 +797,7 @@ func (g *codeGenerator) generateSearchManyInRedisWithTotal(schema *entitySchema,
 
 func (g *codeGenerator) generateReindexRedisSearch(schema *entitySchema, names *entityNames) {
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) ReindexRedisSearch(ctx fluxaorm.Context) error {", names.providerNamePrivate))
+	g.addLine(fmt.Sprintf("func (p %s) ReindexRedisSearch(ctx orm.Context) error {", names.providerNamePrivate))
 
 	// Step 1: delete all existing search hashes for this entity via Lua SCAN+UNLINK
 	g.body += "\t_luaScript := `\n"
@@ -965,7 +965,7 @@ func (g *codeGenerator) verifyCachedUniqueHit(schema *entitySchema, idxName stri
 // for a row's contents - this cache only ever answers "which ids exist".
 func (g *codeGenerator) generateGetAll(schema *entitySchema, names *entityNames) {
 	g.addImport("strconv")
-	g.addLine(fmt.Sprintf("func (p %s) GetAll(ctx fluxaorm.Context) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("func (p %s) GetAll(ctx orm.Context) ([]*%s, error) {", names.providerNamePrivate, names.entityName))
 
 	// Inside a transaction MySQL reads go through the tx, so a cached set would hide the write that
 	// is in flight and a fill would publish uncommitted ids. Same gate as GetByID.
@@ -1015,13 +1015,13 @@ func (g *codeGenerator) generateGetAll(schema *entitySchema, names *entityNames)
 
 	// The stamp is always element 0, so an empty table still caches as a one-element list and is
 	// told apart from a cold key. It also means RowCacheRewriteScript never RPUSHes nothing.
-	g.addLine("\tif _useCache && len(ids) <= fluxaorm.MaxCachedAllRows {")
+	g.addLine("\tif _useCache && len(ids) <= orm.MaxCachedAllRows {")
 	g.addLine("\t\t_evalArgs := make([]any, 0, len(ids)+2)")
-	g.addLine("\t\t_evalArgs = append(_evalArgs, int(fluxaorm.EntityCacheTTL.Seconds()), p.redisCacheStamp)")
+	g.addLine("\t\t_evalArgs = append(_evalArgs, int(orm.EntityCacheTTL.Seconds()), p.redisCacheStamp)")
 	g.addLine("\t\tfor _, id := range ids {")
 	g.addLine("\t\t\t_evalArgs = append(_evalArgs, strconv.FormatUint(id, 10))")
 	g.addLine("\t\t}")
-	g.addLine("\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, fluxaorm.RowCacheRewriteScript, []string{p.redisAllKey}, _evalArgs...)")
+	g.addLine("\t\t_, err = ctx.Engine().Redis(p.redisCode).Eval(ctx, orm.RowCacheRewriteScript, []string{p.redisAllKey}, _evalArgs...)")
 	g.addLine("\t\tif err != nil {")
 	g.addLine("\t\t\treturn nil, err")
 	g.addLine("\t\t}")

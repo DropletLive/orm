@@ -2,10 +2,10 @@
 // so the generator's import aliasing has something to disambiguate.
 package jobtasks
 
-import "github.com/latolukasz/fluxaorm/v2"
+import "github.com/DropletLive/orm"
 
 type TranscodeClip struct {
 	Path string
 }
 
-func (TranscodeClip) Queue() fluxaorm.Queue { return "media" }
+func (TranscodeClip) Queue() orm.Queue { return "media" }

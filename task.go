@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -32,7 +32,7 @@ var (
 // Queued is the optional interface a task implements to pick its queue.
 // Without it the task lands on DefaultQueue.
 //
-//	func (DownloadSocialAvatar) Queue() fluxaorm.Queue { return topology.QueueMedia }
+//	func (DownloadSocialAvatar) Queue() orm.Queue { return topology.QueueMedia }
 type Queued interface {
 	Queue() Queue
 }
@@ -291,7 +291,7 @@ func checkJobRunEntityRegistered(reg *engineRegistryImplementation) error {
 	sort.Strings(names)
 
 	return fmt.Errorf(
-		"task '%s' is registered but fluxaorm.JobRunEntity is not; add registry.RegisterEntity(fluxaorm.JobRunEntity{})",
+		"task '%s' is registered but orm.JobRunEntity is not; add registry.RegisterEntity(orm.JobRunEntity{})",
 		names[0])
 }
 

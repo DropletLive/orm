@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ func (g *codeGenerator) generateTypedFields(schema *entitySchema, names *entityN
 	g.addLine(fmt.Sprintf("type %sFields struct {", names.entityPrivate))
 	for _, columnName := range schema.columnNames {
 		if columnName == "ID" {
-			g.addLine(fmt.Sprintf("\tID fluxaorm.UintField"))
+			g.addLine(fmt.Sprintf("\tID orm.UintField"))
 			continue
 		}
 		if schema.hasFakeDelete && columnName == "FakeDelete" {
@@ -20,7 +20,7 @@ func (g *codeGenerator) generateTypedFields(schema *entitySchema, names *entityN
 		if fieldType == "" {
 			continue
 		}
-		g.addLine(fmt.Sprintf("\t%s fluxaorm.%s", columnName, fieldType))
+		g.addLine(fmt.Sprintf("\t%s orm.%s", columnName, fieldType))
 	}
 	g.addLine("}")
 	g.addLine("")
@@ -30,7 +30,7 @@ func (g *codeGenerator) generateTypedFieldsInit(schema *entitySchema, names *ent
 	g.addLine(fmt.Sprintf("\tFields: %sFields{", names.entityPrivate))
 	for _, columnName := range schema.columnNames {
 		if columnName == "ID" {
-			g.addLine(fmt.Sprintf("\t\tID: fluxaorm.UintField{Column: \"ID\"},"))
+			g.addLine(fmt.Sprintf("\t\tID: orm.UintField{Column: \"ID\"},"))
 			continue
 		}
 		if schema.hasFakeDelete && columnName == "FakeDelete" {
@@ -40,7 +40,7 @@ func (g *codeGenerator) generateTypedFieldsInit(schema *entitySchema, names *ent
 		if fieldType == "" {
 			continue
 		}
-		g.addLine(fmt.Sprintf("\t\t%s: fluxaorm.%s{Column: \"%s\"},", columnName, fieldType, columnName))
+		g.addLine(fmt.Sprintf("\t\t%s: orm.%s{Column: \"%s\"},", columnName, fieldType, columnName))
 	}
 	g.addLine("\t},")
 }
@@ -154,7 +154,7 @@ func (g *codeGenerator) generateRedisSearchFields(schema *entitySchema, names *e
 		if fieldType == "" {
 			continue
 		}
-		g.addLine(fmt.Sprintf("\t%s fluxaorm.%s", sf.columnName, fieldType))
+		g.addLine(fmt.Sprintf("\t%s orm.%s", sf.columnName, fieldType))
 	}
 	g.addLine("}")
 	g.addLine("")
@@ -171,7 +171,7 @@ func (g *codeGenerator) generateRedisSearchFieldsInit(schema *entitySchema, name
 		if fieldType == "" {
 			continue
 		}
-		g.addLine(fmt.Sprintf("\t\t%s: fluxaorm.%s{Column: \"%s\"},", sf.columnName, fieldType, sf.columnName))
+		g.addLine(fmt.Sprintf("\t\t%s: orm.%s{Column: \"%s\"},", sf.columnName, fieldType, sf.columnName))
 	}
 	g.addLine("\t},")
 }

@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"context"
@@ -47,8 +47,8 @@ func entityCacheIndexFor(t *testing.T, engine Engine, entity any) string {
 // TestCacheIndexIsEntityTypeName: schema.index is the fully qualified Go type name.
 func TestCacheIndexIsEntityTypeName(t *testing.T) {
 	engine := validateForCacheIndex(t, cacheIndexEntityA{}, cacheIndexEntityB{})
-	assert.Equal(t, "fluxaorm.cacheIndexEntityA", entityCacheIndexFor(t, engine, cacheIndexEntityA{}))
-	assert.Equal(t, "fluxaorm.cacheIndexEntityB", entityCacheIndexFor(t, engine, cacheIndexEntityB{}))
+	assert.Equal(t, "orm.cacheIndexEntityA", entityCacheIndexFor(t, engine, cacheIndexEntityA{}))
+	assert.Equal(t, "orm.cacheIndexEntityB", entityCacheIndexFor(t, engine, cacheIndexEntityB{}))
 }
 
 // TestCacheIndexStableWhenOtherEntitiesAdded: the bug the refactor fixed —

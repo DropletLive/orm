@@ -6,12 +6,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/assert"
 )
 
-func countSelects(logger *fluxaorm.MockLogHandler) int {
+func countSelects(logger *orm.MockLogHandler) int {
 	n := 0
 	for _, entry := range logger.Logs {
 		if query, ok := entry["query"].(string); ok && strings.HasPrefix(query, "SELECT") {
@@ -25,7 +25,7 @@ func countSelects(logger *fluxaorm.MockLogHandler) int {
 // Writes only invalidate the row cache, so the fill happens on read. If it silently stopped
 // happening, every read would fall through to MySQL and the cache would be decorative.
 func TestRedisCacheServesTheSecondRead(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("Cached")
@@ -39,8 +39,8 @@ func TestRedisCacheServesTheSecondRead(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	sql := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sql, orm.QueryLoggerOptions{MySQL: true})
 
 	first, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
@@ -48,7 +48,7 @@ func TestRedisCacheServesTheSecondRead(t *testing.T) {
 	assert.Equal(t, 1, countSelects(sql), "the write invalidated the key, so the first read must miss and hit MySQL")
 
 	key := entities.GenerateEntityWithTimestampsRedisProvider.RedisCachePrefix() + strconv.FormatUint(e.GetID(), 10)
-	cached, err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LRange(ctx, key, 0, -1)
+	cached, err := ctx.Engine().Redis(orm.DefaultPoolCode).LRange(ctx, key, 0, -1)
 	assert.NoError(t, err)
 	// Stamp plus every column of the fixture. Asserting the exact width is what catches a fill that
 	// quietly stops writing a column - the getters would just return that column's zero value.
@@ -70,7 +70,7 @@ func TestRedisCacheServesTheSecondRead(t *testing.T) {
 // The stamp is what makes a schema change invalidate every cached row at once, so a hit requires it
 // to match rather than merely to be present.
 func TestRedisCacheHitRequiresMatchingStamp(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("Stamped")
@@ -82,13 +82,13 @@ func TestRedisCacheHitRequiresMatchingStamp(t *testing.T) {
 	_, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 
-	redis := ctx.Engine().Redis(fluxaorm.DefaultPoolCode)
+	redis := ctx.Engine().Redis(orm.DefaultPoolCode)
 	key := entities.GenerateEntityWithTimestampsRedisProvider.RedisCachePrefix() + strconv.FormatUint(e.GetID(), 10)
 
 	assert.NoError(t, redis.LSet(ctx, key, 0, "stale-stamp"))
 
-	sql := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sql, orm.QueryLoggerOptions{MySQL: true})
 
 	reloaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
@@ -101,14 +101,14 @@ func TestRedisCacheHitRequiresMatchingStamp(t *testing.T) {
 // value list written under the other shape must be treated as a miss — reading it positionally
 // would be an out-of-range panic or a silently wrong field.
 func TestStampMismatchFallsThroughAndRewrites(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("Shaped")
 	assert.NoError(t, ctx.Save(e))
 
 	key := entities.GenerateEntityWithTimestampsRedisProvider.RedisCachePrefix() + strconv.FormatUint(e.GetID(), 10)
-	redis := ctx.Engine().Redis(fluxaorm.DefaultPoolCode)
+	redis := ctx.Engine().Redis(orm.DefaultPoolCode)
 	assert.NoError(t, redis.Del(ctx, key))
 	// One element short and stamped by a layout this binary has never seen.
 	_, err := redis.RPush(ctx, key, "stamp-from-another-version", "Wrong")
@@ -116,8 +116,8 @@ func TestStampMismatchFallsThroughAndRewrites(t *testing.T) {
 
 	reader := ctx.Clone()
 	reader.DisableContextCache()
-	sql := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sql, orm.QueryLoggerOptions{MySQL: true})
 
 	loaded, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
@@ -127,8 +127,8 @@ func TestStampMismatchFallsThroughAndRewrites(t *testing.T) {
 	// And the fall-through must leave the key usable for this binary rather than re-missing.
 	second := ctx.Clone()
 	second.DisableContextCache()
-	sql2 := &fluxaorm.MockLogHandler{}
-	second.RegisterQueryLogger(sql2, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql2 := &orm.MockLogHandler{}
+	second.RegisterQueryLogger(sql2, orm.QueryLoggerOptions{MySQL: true})
 	_, err = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(second, e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, 0, countSelects(sql2), "the rewrite must have restored a usable entry")
@@ -142,14 +142,14 @@ func TestStampMismatchFallsThroughAndRewrites(t *testing.T) {
 // in one write and Redis drains a client's buffer before serving the next, so this test passes
 // either way — it guards the invariant, it does not demonstrate the race.
 func TestConcurrentFillsLeaveOneCopy(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("Contended")
 	assert.NoError(t, ctx.Save(e))
 
 	key := entities.GenerateEntityWithTimestampsRedisProvider.RedisCachePrefix() + strconv.FormatUint(e.GetID(), 10)
-	redis := ctx.Engine().Redis(fluxaorm.DefaultPoolCode)
+	redis := ctx.Engine().Redis(orm.DefaultPoolCode)
 
 	// One uncontended fill establishes what a single copy looks like.
 	assert.NoError(t, redis.Del(ctx, key))
@@ -166,7 +166,7 @@ func TestConcurrentFillsLeaveOneCopy(t *testing.T) {
 	// Contexts are built up front and every filler waits on one barrier, so the DELs and RPUSHes
 	// have the best chance to interleave.
 	const fillers = 64
-	readers := make([]fluxaorm.Context, fillers)
+	readers := make([]orm.Context, fillers)
 	for i := range readers {
 		readers[i] = ctx.Clone()
 		readers[i].DisableContextCache()
@@ -175,7 +175,7 @@ func TestConcurrentFillsLeaveOneCopy(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < fillers; i++ {
 		wg.Add(1)
-		go func(reader fluxaorm.Context) {
+		go func(reader orm.Context) {
 			defer wg.Done()
 			<-start
 			_, _ = entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())

@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import "fmt"
 
@@ -10,7 +10,7 @@ func (g *codeGenerator) generatePrivateWriteState(schema *entitySchema, names *e
 	fIdx := 0
 	cols := buildColOriginInfos(schema.fields, &fIdx)
 
-	g.addLine(fmt.Sprintf("func (e *%s) PrivateSnapshot() fluxaorm.Entity {", names.entityName))
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateSnapshot() orm.Entity {", names.entityName))
 	g.addLine("\tcopy := *e")
 	g.addLine("\tcopy.snapshot = true")
 	g.addLine("\tif e.originDatabaseValues != nil { row := *e.originDatabaseValues; copy.originDatabaseValues = &row }")
@@ -80,7 +80,7 @@ func (g *codeGenerator) generatePrivateWriteState(schema *entitySchema, names *e
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) PrivateAdvance(saved fluxaorm.Entity) {", names.entityName))
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateAdvance(saved orm.Entity) {", names.entityName))
 	g.addLine(fmt.Sprintf("\twrite := saved.(*%s)", names.entityName))
 	g.addLine("\tcurrent := e.privateSQLRow(true)")
 	g.addLine("\te.new = false")
@@ -90,7 +90,7 @@ func (g *codeGenerator) generatePrivateWriteState(schema *entitySchema, names *e
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) PrivateRollback(saved fluxaorm.Entity) {", names.entityName))
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateRollback(saved orm.Entity) {", names.entityName))
 	g.addLine(fmt.Sprintf("\tbefore := saved.(*%s)", names.entityName))
 	g.addLine("\tcurrent := e.privateSQLRow(true)")
 	g.addLine("\te.new = before.new")

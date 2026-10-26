@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -536,7 +536,7 @@ func (g *codeGenerator) createGetterSetterReferencesRequired(schema *entitySchem
 	g.addLine("")
 
 	// GetField(ctx) ([]*RefEntity, error)
-	g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) ([]*%s, error) {", entityName, fieldName, refName))
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx orm.Context) ([]*%s, error) {", entityName, fieldName, refName))
 	g.addLine(fmt.Sprintf("\tids := e.Get%sIDs()", fieldName))
 	g.addLine("\tif len(ids) == 0 {")
 	g.addLine("\t\treturn nil, nil")
@@ -659,7 +659,7 @@ func (g *codeGenerator) createGetterSetterReferencesNullable(schema *entitySchem
 	g.addLine("")
 
 	// GetField(ctx) ([]*RefEntity, error)
-	g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx fluxaorm.Context) ([]*%s, error) {", entityName, fieldName, refName))
+	g.addLine(fmt.Sprintf("func (e *%s) Get%s(ctx orm.Context) ([]*%s, error) {", entityName, fieldName, refName))
 	g.addLine(fmt.Sprintf("\tids := e.Get%sIDs()", fieldName))
 	g.addLine("\tif len(ids) == 0 {")
 	g.addLine("\t\treturn nil, nil")

@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"

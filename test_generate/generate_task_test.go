@@ -29,7 +29,7 @@ func TestGeneratedDispatchNamesTheTaskStruct(t *testing.T) {
 
 	assert.Contains(t, body, "func DispatchSendWelcomeEmail(")
 	assert.Contains(t, body, "task *jobtasks.SendWelcomeEmail,")
-	assert.Contains(t, body, "return fluxaorm.DispatchTask(orm, task, opts...)")
+	assert.Contains(t, body, "return orm.DispatchTask(orm, task, opts...)")
 	assert.Contains(t, body, `the "emails" queue`)
 }
 
@@ -38,8 +38,8 @@ func TestGeneratedDispatchNamesTheTaskStruct(t *testing.T) {
 func TestGeneratedImportsAliasCollidingTaskPackages(t *testing.T) {
 	body := generated(t, "consumers.go")
 
-	assert.Contains(t, body, `"github.com/latolukasz/fluxaorm/v2/test_fixtures/jobtasks"`)
-	assert.Contains(t, body, `jobtasks2 "github.com/latolukasz/fluxaorm/v2/test_fixtures/media/jobtasks"`)
+	assert.Contains(t, body, `"github.com/DropletLive/orm/test_fixtures/jobtasks"`)
+	assert.Contains(t, body, `jobtasks2 "github.com/DropletLive/orm/test_fixtures/media/jobtasks"`)
 	assert.Contains(t, body, "task *jobtasks2.TranscodeClip,")
 }
 
@@ -50,7 +50,7 @@ func TestGeneratedTaskBuilderExposesOnlyItsQueuesTasks(t *testing.T) {
 
 	assert.Contains(t, emails, "func (b *EmailsWorkerBuilder) OnSendWelcomeEmail(")
 	assert.Contains(t, emails, "func (b *EmailsWorkerBuilder) OnSendReceipt(")
-	assert.Contains(t, emails, "fluxaorm.BuildTaskDispatch(handler)")
+	assert.Contains(t, emails, "orm.BuildTaskDispatch(handler)")
 	assert.NotContains(t, emails, "OnTranscodeClip",
 		"TranscodeClip is on another queue, so this builder must not expose it")
 	assert.NotContains(t, emails, "OnSendPasswordReset",
@@ -79,11 +79,11 @@ func TestGeneratedTaskBuilderHasNoBatchMethods(t *testing.T) {
 }
 
 // The publisher registers under the table name, not a subject: the subject
-// format is fluxaorm's to own, so generated code must never spell one out.
+// format is orm's to own, so generated code must never spell one out.
 func TestGeneratedPublisherRegistersTheTableName(t *testing.T) {
 	body := generated(t, "generateEntityDirty.go")
 
 	assert.Contains(t, body,
-		`fluxaorm.RegisterEntityPublisher[GenerateEntityDirty]("generateEntityDirty", buildGenerateEntityDirtyDirtyEvent)`)
+		`orm.RegisterEntityPublisher[GenerateEntityDirty]("generateEntityDirty", buildGenerateEntityDirtyDirtyEvent)`)
 	assert.NotContains(t, body, "fluxa.entity.")
 }

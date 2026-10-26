@@ -9,17 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_fixtures/jobtasks"
-	mediatasks "github.com/latolukasz/fluxaorm/v2/test_fixtures/media/jobtasks"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_fixtures/jobtasks"
+	mediatasks "github.com/DropletLive/orm/test_fixtures/media/jobtasks"
+	"github.com/DropletLive/orm/test_generate/entities"
 )
 
-func taskFixtureContext(t *testing.T) fluxaorm.Context {
+func taskFixtureContext(t *testing.T) orm.Context {
 	t.Helper()
 
-	return fluxaorm.PrepareTablesWithConsumers(
-		t, FixtureRegistry(), FixtureTaskConsumers(), fluxaorm.JobRunEntity{})
+	return orm.PrepareTablesWithConsumers(
+		t, FixtureRegistry(), FixtureTaskConsumers(), orm.JobRunEntity{})
 }
 
 // The end-to-end proof that the three generated pieces agree: the typed
@@ -36,15 +36,15 @@ func TestGeneratedDispatchAndHandlerRoundTrip(t *testing.T) {
 		receipts []*jobtasks.SendReceipt
 	)
 
-	consumer := fluxaorm.NewConsumer(ctx.Engine(), entities.ConsumerEmailsWorker).
-		OnSendWelcomeEmail(func(_ fluxaorm.Context, task *jobtasks.SendWelcomeEmail) error {
+	consumer := orm.NewConsumer(ctx.Engine(), entities.ConsumerEmailsWorker).
+		OnSendWelcomeEmail(func(_ orm.Context, task *jobtasks.SendWelcomeEmail) error {
 			mu.Lock()
 			defer mu.Unlock()
 			welcomes = append(welcomes, task)
 
 			return nil
 		}).
-		OnSendReceipt(func(_ fluxaorm.Context, task *jobtasks.SendReceipt) error {
+		OnSendReceipt(func(_ orm.Context, task *jobtasks.SendReceipt) error {
 			mu.Lock()
 			defer mu.Unlock()
 			receipts = append(receipts, task)
@@ -124,7 +124,7 @@ func TestTaskWithoutQueueFallsBackToDefault(t *testing.T) {
 
 	runID, err := entities.DispatchSendPasswordReset(ctx, &jobtasks.SendPasswordReset{UserID: 7})
 	require.NoError(t, err)
-	assertRunQueue(t, ctx, runID, string(fluxaorm.DefaultQueue))
+	assertRunQueue(t, ctx, runID, string(orm.DefaultQueue))
 }
 
 // TestTaskSubjectIsItsQueueAndName is the routing contract: the subject a
@@ -164,8 +164,8 @@ func TestGeneratedBuilderRefusesAPartialConsumer(t *testing.T) {
 	assert.PanicsWithValue(t,
 		`consumer 'emails-worker': no handler registered for task 'SendReceipt'`,
 		func() {
-			fluxaorm.NewConsumer(ctx.Engine(), entities.ConsumerEmailsWorker).
-				OnSendWelcomeEmail(func(_ fluxaorm.Context, _ *jobtasks.SendWelcomeEmail) error { return nil }).
+			orm.NewConsumer(ctx.Engine(), entities.ConsumerEmailsWorker).
+				OnSendWelcomeEmail(func(_ orm.Context, _ *jobtasks.SendWelcomeEmail) error { return nil }).
 				Build()
 		})
 }
@@ -173,26 +173,26 @@ func TestGeneratedBuilderRefusesAPartialConsumer(t *testing.T) {
 // TestTaskAndEntityConsumersLandOnTheirOwnStream: the two kinds are one concept
 // over two streams, and each durable has to be created on the right one.
 func TestTaskAndEntityConsumersLandOnTheirOwnStream(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
+	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		fluxaorm.CDCOutboxEntity{}, fluxaorm.JobRunEntity{})
+		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	require.NoError(t, err)
 
 	for _, name := range []string{"test-indexer", "test-notifier"} {
-		_, consErr := js.Consumer(ctx.Context(), fluxaorm.EntityStreamName, name)
+		_, consErr := js.Consumer(ctx.Context(), orm.EntityStreamName, name)
 		require.NoErrorf(t, consErr, "entity consumer %q must live on the entity stream", name)
 	}
 
 	for _, name := range []string{"emails-worker", "media-worker", "default-worker"} {
-		_, consErr := js.Consumer(ctx.Context(), fluxaorm.TaskStreamName, name)
+		_, consErr := js.Consumer(ctx.Context(), orm.TaskStreamName, name)
 		require.NoErrorf(t, consErr, "task consumer %q must live on the task stream", name)
 	}
 }
 
-func assertRunQueue(t *testing.T, ctx fluxaorm.Context, runID uint64, queue string) {
+func assertRunQueue(t *testing.T, ctx orm.Context, runID uint64, queue string) {
 	t.Helper()
 
 	run, err := entities.JobRunsProvider.GetByID(ctx.Clone(), runID)

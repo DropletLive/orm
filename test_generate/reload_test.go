@@ -4,15 +4,15 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/assert"
 )
 
 // Reload is the supported way to get current data without ending up with two
 // handles on one row: the pointer survives, only the values move.
 func TestReloadRefreshesTheSamePointer(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("V1")
@@ -43,7 +43,7 @@ func TestReloadRefreshesTheSamePointer(t *testing.T) {
 // is what makes reload-under-a-lock safe: the caller that fetched the entity
 // earlier cannot keep acting on pre-lock values.
 func TestReloadIsVisibleThroughEveryHolder(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("V1")
@@ -71,7 +71,7 @@ func TestReloadIsVisibleThroughEveryHolder(t *testing.T) {
 // ORM leaves the cached copy in place, so a reload that consulted Redis would
 // return the old name.
 func TestReloadBypassesTheRedisRowCache(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("V1")
@@ -85,20 +85,20 @@ func TestReloadBypassesTheRedisRowCache(t *testing.T) {
 	// This one hits Redis, so the handle carries redis-loaded values - the state
 	// that has to be dropped on reload, since every getter prefers it.
 	reader := ctx.Clone()
-	sql := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sql, orm.QueryLoggerOptions{MySQL: true})
 	cached, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, 0, countSelects(sql), "precondition: this handle was built from Redis, not MySQL")
 	assert.Equal(t, "V1", cached.GetName())
 
 	// Behind the ORM on purpose: the Redis list keeps saying "V1".
-	_, err = ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx,
+	_, err = ctx.DB(orm.DefaultPoolCode).Exec(ctx,
 		"UPDATE `generateEntityWithTimestampsRedis` SET `Name` = ? WHERE `ID` = ?", "V2", e.GetID())
 	assert.NoError(t, err)
 
 	key := entities.GenerateEntityWithTimestampsRedisProvider.RedisCachePrefix() + strconv.FormatUint(e.GetID(), 10)
-	row, err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LRange(ctx, key, 0, -1)
+	row, err := ctx.Engine().Redis(orm.DefaultPoolCode).LRange(ctx, key, 0, -1)
 	assert.NoError(t, err)
 	assert.Contains(t, row, "V1", "precondition: the stale row is still cached")
 
@@ -109,7 +109,7 @@ func TestReloadBypassesTheRedisRowCache(t *testing.T) {
 // Inside a transaction the reload goes through that transaction, so it sees the
 // transaction's own uncommitted writes rather than the pre-transaction row.
 func TestReloadInsideTransactionSeesTheTransactionsWrite(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("V1")
@@ -119,8 +119,8 @@ func TestReloadInsideTransactionSeesTheTransactionsWrite(t *testing.T) {
 	handle, err := entities.GenerateEntityWithTimestampsProvider.GetByID(reader, e.GetID())
 	assert.NoError(t, err)
 
-	assert.NoError(t, reader.Transaction(func(tx fluxaorm.Context) error {
-		_, err := tx.DB(fluxaorm.DefaultPoolCode).Exec(tx,
+	assert.NoError(t, reader.Transaction(func(tx orm.Context) error {
+		_, err := tx.DB(orm.DefaultPoolCode).Exec(tx,
 			"UPDATE `generateEntityWithTimestamps` SET `Name` = ? WHERE `ID` = ?", "V2", e.GetID())
 		if err != nil {
 			return err
@@ -139,7 +139,7 @@ func TestReloadInsideTransactionSeesTheTransactionsWrite(t *testing.T) {
 // the UPDATE must be built against the values just read - not the ones the handle
 // held before.
 func TestReloadedEntityCanBeMutatedAndSaved(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("V1")
@@ -169,7 +169,7 @@ func TestReloadedEntityCanBeMutatedAndSaved(t *testing.T) {
 // reload that failed to refresh the origin snapshot would make this save write
 // nothing - the silent half of the stale-handle bug.
 func TestReloadRefreshesTheOriginSnapshot(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
 
 	e := entities.GenerateEntityWithTimestampsProvider.New(ctx)
 	e.SetName("V1")
@@ -201,7 +201,7 @@ func TestReloadRefreshesTheOriginSnapshot(t *testing.T) {
 // cache past both of Save's deletes. Reload is where a caller learns the truth, so
 // it must not leave that copy behind for the next cached read.
 func TestReloadDropsTheStaleCachedRow(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 
 	e := entities.GenerateEntityWithTimestampsRedisProvider.New(ctx)
 	e.SetName("V1")
@@ -217,7 +217,7 @@ func TestReloadDropsTheStaleCachedRow(t *testing.T) {
 
 	assert.Equal(t, "V1", cachedRead(), "the read fills the row cache")
 
-	_, err := ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx,
+	_, err := ctx.DB(orm.DefaultPoolCode).Exec(ctx,
 		"UPDATE `generateEntityWithTimestampsRedis` SET `Name` = ? WHERE `ID` = ?", "V2", e.GetID())
 	assert.NoError(t, err)
 	assert.Equal(t, "V1", cachedRead(), "precondition: the cache serves the stale row")

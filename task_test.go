@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"testing"
@@ -185,7 +185,7 @@ func TestValidateRejectsATaskWithoutTheJobRunEntity(t *testing.T) {
 	registry.RegisterConsumer(ConsumerDef{Name: "alpha-worker", Queues: []Queue{"alpha"}})
 
 	_, err := registry.Validate()
-	assert.ErrorContains(t, err, "fluxaorm.JobRunEntity is not")
+	assert.ErrorContains(t, err, "orm.JobRunEntity is not")
 	assert.ErrorContains(t, err, "ResolveTaskA")
 }
 

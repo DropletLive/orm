@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"errors"
@@ -60,7 +60,7 @@ func (rp *RedisPipeLine) LRangeValue(key string, start, stop int64) PipeLineSlic
 // results after Exec; their temporary command storage is shared within the batch.
 func (rp *RedisPipeLine) LRangeBatchInto(results []PipeLineSlice, keys []string, start, stop int64) {
 	if len(results) != len(keys) {
-		panic("fluxaorm: LRANGE batch result and key lengths differ")
+		panic("orm: LRANGE batch result and key lengths differ")
 	}
 	if len(keys) == 0 {
 		return

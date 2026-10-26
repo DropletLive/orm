@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	fluxaorm "github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities/enums"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
+	"github.com/DropletLive/orm/test_generate/entities/enums"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,23 +20,23 @@ type outboxOnSecondPool struct {
 	Name string `orm:"required;length=100"`
 }
 
-func outboxCtx(t *testing.T) fluxaorm.Context {
+func outboxCtx(t *testing.T) orm.Context {
 	t.Helper()
 
-	return fluxaorm.PrepareTablesWithConsumers(t,
+	return orm.PrepareTablesWithConsumers(t,
 		FixtureRegistry(),
 		FixtureConsumers(),
 		generateEntityOutbox{}, generateEntityStoreOnly{}, generateEntityDirty{},
-		generateEntityDirtyB{}, fluxaorm.CDCOutboxEntity{}, fluxaorm.JobRunEntity{},
+		generateEntityDirtyB{}, orm.CDCOutboxEntity{}, orm.JobRunEntity{},
 	)
 }
 
-func outboxRows(t *testing.T, ctx fluxaorm.Context) []*entities.CdcOutbox {
+func outboxRows(t *testing.T, ctx orm.Context) []*entities.CdcOutbox {
 	t.Helper()
 
-	rows, err := entities.CdcOutboxProvider.SearchMany(ctx, fluxaorm.NewQuery().
+	rows, err := entities.CdcOutboxProvider.SearchMany(ctx, orm.NewQuery().
 		SortByASC(entities.CdcOutboxProvider.Fields.ID).
-		Pager(fluxaorm.NewPager(1, 100)))
+		Pager(orm.NewPager(1, 100)))
 	assert.NoError(t, err)
 
 	return rows
@@ -44,7 +44,7 @@ func outboxRows(t *testing.T, ctx fluxaorm.Context) []*entities.CdcOutbox {
 
 // onlyOutboxRow fails the test outright when the row count is wrong, so a
 // staging regression reports as a clean assertion rather than an index panic.
-func onlyOutboxRow(t *testing.T, ctx fluxaorm.Context) *entities.CdcOutbox {
+func onlyOutboxRow(t *testing.T, ctx orm.Context) *entities.CdcOutbox {
 	t.Helper()
 
 	rows := outboxRows(t, ctx)
@@ -55,7 +55,7 @@ func onlyOutboxRow(t *testing.T, ctx fluxaorm.Context) *entities.CdcOutbox {
 	return rows[0]
 }
 
-func newOutboxEntity(ctx fluxaorm.Context, name string) *entities.GenerateEntityOutbox {
+func newOutboxEntity(ctx orm.Context, name string) *entities.GenerateEntityOutbox {
 	e := entities.GenerateEntityOutboxProvider.New(ctx)
 	e.SetName(name)
 	e.SetAge(30)
@@ -67,7 +67,7 @@ func TestOutboxRowRollsBackWithTheEntity(t *testing.T) {
 	ctx := outboxCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
-	err := ctx.Transaction(func(tx fluxaorm.Context) error {
+	err := ctx.Transaction(func(tx orm.Context) error {
 		if saveErr := tx.Save(newOutboxEntity(tx, "rollback-me")); saveErr != nil {
 			return saveErr
 		}
@@ -79,7 +79,7 @@ func TestOutboxRowRollsBackWithTheEntity(t *testing.T) {
 	assert.Empty(t, outboxRows(t, ctx.Clone()), "outbox row must not survive a rolled back transaction")
 
 	sources, err := entities.GenerateEntityOutboxProvider.SearchMany(ctx.Clone(),
-		fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 100)))
+		orm.NewQuery().Pager(orm.NewPager(1, 100)))
 	assert.NoError(t, err)
 	assert.Empty(t, sources)
 }
@@ -107,7 +107,7 @@ func TestOutboxRowIsWrittenPending(t *testing.T) {
 	// Seen from inside the transaction: the row is already there and it is
 	// pending. Nothing has published at this point, so anything else would be a
 	// claim of delivery the ORM cannot back.
-	assert.NoError(t, ctx.Transaction(func(tx fluxaorm.Context) error {
+	assert.NoError(t, ctx.Transaction(func(tx orm.Context) error {
 		if err := tx.Save(newOutboxEntity(tx, "pending-check")); err != nil {
 			return err
 		}
@@ -200,7 +200,7 @@ func TestRolledBackSaveMarksNothingOnALaterSave(t *testing.T) {
 	ctx := outboxCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
-	assert.Error(t, ctx.Transaction(func(tx fluxaorm.Context) error {
+	assert.Error(t, ctx.Transaction(func(tx orm.Context) error {
 		if err := tx.Save(newOutboxEntity(tx, "doomed")); err != nil {
 			return err
 		}
@@ -224,7 +224,7 @@ func TestRelayPublishesRowsLeftPendingByAFailedPublish(t *testing.T) {
 
 	restoreStreams(t, ctx)
 
-	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
+	res, err := orm.RelayCDCOutbox(ctx, 0, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, res.Fetched)
 	assert.Equal(t, 1, res.Dispatched)
@@ -242,7 +242,7 @@ func TestRelaySkipsRowsInsideTheGracePeriod(t *testing.T) {
 	assert.Error(t, ctx.Save(newOutboxEntity(ctx, "too-fresh")))
 	restoreStreams(t, ctx)
 
-	res, err := fluxaorm.RelayCDCOutbox(ctx, time.Hour, 100)
+	res, err := orm.RelayCDCOutbox(ctx, time.Hour, 100)
 	assert.NoError(t, err)
 	assert.Zero(t, res.Fetched, "a fresh row still belongs to the ORM's own post-commit mark")
 
@@ -256,7 +256,7 @@ func TestRelayLeavesRowsPendingWhenPublishStillFails(t *testing.T) {
 	killStreams(t, ctx)
 	assert.Error(t, ctx.Save(newOutboxEntity(ctx, "still-broken")))
 
-	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
+	res, err := orm.RelayCDCOutbox(ctx, 0, 100)
 	assert.Error(t, err, "the caller has to learn the backlog is not draining")
 	assert.Equal(t, 1, res.Fetched)
 	assert.Zero(t, res.Dispatched,
@@ -277,7 +277,7 @@ func TestRelayIgnoresStoredRows(t *testing.T) {
 	e.SetName("never-relayed")
 	assert.NoError(t, ctx.Save(e))
 
-	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
+	res, err := orm.RelayCDCOutbox(ctx, 0, 100)
 	assert.NoError(t, err)
 	assert.Zero(t, res.Fetched, "store-only rows are terminal and have no subject to publish to")
 
@@ -296,7 +296,7 @@ func TestPurgeRemovesTerminalRowsOnly(t *testing.T) {
 
 	// A negative window puts the cutoff in the future, so every terminal row
 	// qualifies without the test having to fake a clock.
-	deleted, err := fluxaorm.PurgeCDCOutbox(ctx, -time.Minute, 100)
+	deleted, err := orm.PurgeCDCOutbox(ctx, -time.Minute, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, deleted, "dispatched and stored are both terminal")
 	assert.Empty(t, outboxRows(t, ctx.Clone()))
@@ -310,7 +310,7 @@ func TestPurgeNeverRemovesPendingRows(t *testing.T) {
 	assert.Error(t, ctx.Save(newOutboxEntity(ctx, "undelivered")))
 
 	// Same future cutoff: if pending were purgeable at all, this would take it.
-	deleted, err := fluxaorm.PurgeCDCOutbox(ctx, -time.Hour, 100)
+	deleted, err := orm.PurgeCDCOutbox(ctx, -time.Hour, 100)
 	assert.NoError(t, err)
 	assert.Zero(t, deleted, "purging an undelivered event is the loss the outbox exists to prevent")
 
@@ -323,7 +323,7 @@ func TestBacklogCountsOnlyUndeliveredRows(t *testing.T) {
 
 	assert.NoError(t, ctx.Save(newOutboxEntity(ctx, "delivered")))
 
-	depth, oldest, err := fluxaorm.CDCOutboxBacklog(ctx)
+	depth, oldest, err := orm.CDCOutboxBacklog(ctx)
 	assert.NoError(t, err)
 	assert.Zero(t, depth, "a dispatched row is not a backlog")
 	assert.Zero(t, oldest)
@@ -331,29 +331,29 @@ func TestBacklogCountsOnlyUndeliveredRows(t *testing.T) {
 	killStreams(t, ctx)
 	assert.Error(t, ctx.Save(newOutboxEntity(ctx, "stuck")))
 
-	depth, oldest, err = fluxaorm.CDCOutboxBacklog(ctx)
+	depth, oldest, err = orm.CDCOutboxBacklog(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, depth)
 	assert.Positive(t, oldest)
 }
 
 func TestValidateRejectsCdcOutboxWithoutTheEntityRegistered(t *testing.T) {
-	registry := fluxaorm.NewRegistry()
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &fluxaorm.MySQLOptions{})
+	registry := orm.NewRegistry()
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &orm.MySQLOptions{})
 	registry.RegisterRedis("localhost:6395", 0, "default", nil)
 	registry.RegisterEntity(generateEntityStoreOnly{})
 
 	_, err := registry.Validate()
-	assert.ErrorContains(t, err, "fluxaorm.CDCOutboxEntity is not registered")
+	assert.ErrorContains(t, err, "orm.CDCOutboxEntity is not registered")
 	assert.ErrorContains(t, err, "generateEntityStoreOnly")
 }
 
 func TestValidateRejectsAnOutboxInAnotherPool(t *testing.T) {
-	registry := fluxaorm.NewRegistry()
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &fluxaorm.MySQLOptions{})
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "second", &fluxaorm.MySQLOptions{})
+	registry := orm.NewRegistry()
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &orm.MySQLOptions{})
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "second", &orm.MySQLOptions{})
 	registry.RegisterRedis("localhost:6395", 0, "default", nil)
-	registry.RegisterEntity(outboxOnSecondPool{}, fluxaorm.CDCOutboxEntity{})
+	registry.RegisterEntity(outboxOnSecondPool{}, orm.CDCOutboxEntity{})
 
 	_, err := registry.Validate()
 	assert.ErrorContains(t, err, "would not be in the same transaction")
@@ -362,7 +362,7 @@ func TestValidateRejectsAnOutboxInAnotherPool(t *testing.T) {
 // queryLog records every MySQL statement executed on a context.
 type queryLog struct{ queries []string }
 
-func (q *queryLog) Handle(_ fluxaorm.Context, log map[string]any) {
+func (q *queryLog) Handle(_ orm.Context, log map[string]any) {
 	if s, ok := log["query"].(string); ok {
 		q.queries = append(q.queries, s)
 	}
@@ -379,21 +379,21 @@ func (q *queryLog) count(fragment string) int {
 	return n
 }
 
-func captureQueries(ctx fluxaorm.Context) *queryLog {
+func captureQueries(ctx orm.Context) *queryLog {
 	log := &queryLog{}
-	ctx.RegisterQueryLogger(log, fluxaorm.QueryLoggerOptions{MySQL: true})
+	ctx.RegisterQueryLogger(log, orm.QueryLoggerOptions{MySQL: true})
 
 	return log
 }
 
 // killStreams removes the entity stream so PublishBatch fails. restoreStreams
 // puts it back, so this stays local to one test.
-func killStreams(t *testing.T, ctx fluxaorm.Context) {
+func killStreams(t *testing.T, ctx orm.Context) {
 	t.Helper()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	assert.NoError(t, err)
-	assert.NoError(t, js.DeleteStream(ctx.Context(), fluxaorm.EntityStreamName))
+	assert.NoError(t, js.DeleteStream(ctx.Context(), orm.EntityStreamName))
 }
 
 func TestOutboxRowStaysPendingOnPublishFailure(t *testing.T) {
@@ -405,13 +405,13 @@ func TestOutboxRowStaysPendingOnPublishFailure(t *testing.T) {
 	e := newOutboxEntity(ctx, "publish-fails")
 	err := ctx.Save(e)
 
-	var postCommit *fluxaorm.PostCommitError
+	var postCommit *orm.PostCommitError
 	assert.ErrorAs(t, err, &postCommit, "a failed publish is reported after the rows are durable")
 
 	// The write committed - that is the whole premise. What must not happen is
 	// the row claiming delivery that never occurred.
 	sources, searchErr := entities.GenerateEntityOutboxProvider.SearchMany(ctx.Clone(),
-		fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 100)))
+		orm.NewQuery().Pager(orm.NewPager(1, 100)))
 	assert.NoError(t, searchErr)
 	assert.Len(t, sources, 1)
 
@@ -425,7 +425,7 @@ func TestTwoSavesInOneTransactionMarkOnlyTheirOwnRows(t *testing.T) {
 	defer ctx.Engine().Nats("nats").Close()
 
 	logs := captureQueries(ctx)
-	assert.NoError(t, ctx.Transaction(func(tx fluxaorm.Context) error {
+	assert.NoError(t, ctx.Transaction(func(tx orm.Context) error {
 		if err := tx.Save(newOutboxEntity(tx, "save-one")); err != nil {
 			return err
 		}
@@ -443,10 +443,10 @@ func TestTwoSavesInOneTransactionMarkOnlyTheirOwnRows(t *testing.T) {
 
 // restoreStreams recreates the JetStream streams killStreams removed, so a test
 // can stage a failed publish and then let the relay succeed.
-func restoreStreams(t *testing.T, ctx fluxaorm.Context) {
+func restoreStreams(t *testing.T, ctx orm.Context) {
 	t.Helper()
 
-	alters, err := fluxaorm.GetNatsAlters(ctx)
+	alters, err := orm.GetNatsAlters(ctx)
 	assert.NoError(t, err)
 	for _, alter := range alters {
 		assert.NoError(t, alter.Exec(ctx))
@@ -463,8 +463,8 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 	defer ctx.Engine().Nats("nats").Close()
 
 	var delivered []byte
-	consumer := fluxaorm.NewConsumer(ctx.Engine(), entities.ConsumerTestIndexer).
-		OnGenerateEntityOutbox(func(_ fluxaorm.Context, ev *entities.GenerateEntityOutboxDirtyEvent) error {
+	consumer := orm.NewConsumer(ctx.Engine(), entities.ConsumerTestIndexer).
+		OnGenerateEntityOutbox(func(_ orm.Context, ev *entities.GenerateEntityOutboxDirtyEvent) error {
 			raw, marshalErr := json.Marshal(ev)
 			if marshalErr != nil {
 				return marshalErr
@@ -502,7 +502,7 @@ func TestOutboxSubjectDerivesFromEntityName(t *testing.T) {
 	assert.Error(t, ctx.Save(newOutboxEntity(ctx, "subject-from-name")))
 	restoreStreams(t, ctx)
 
-	res, err := fluxaorm.RelayCDCOutbox(ctx, 0, 100)
+	res, err := orm.RelayCDCOutbox(ctx, 0, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, res.Dispatched)
 

@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"errors"
@@ -14,13 +14,13 @@ import (
 // silently lost its entire status history, which is the one thing the table
 // exists to provide.
 var ErrJobRunEntityNotRegistered = errors.New(
-	"fluxaorm.JobRunEntity is not registered; add registry.RegisterEntity(fluxaorm.JobRunEntity{})")
+	"orm.JobRunEntity is not registered; add registry.RegisterEntity(orm.JobRunEntity{})")
 
 // JobRunEntity records one dispatch of one task: its payload, how many attempts
 // it took, and how it ended. The application registers it like any entity and
 // gets the table, the provider and the status enum generated from it.
 //
-// fluxaorm owns this struct because fluxaorm owns the transitions. An
+// orm owns this struct because orm owns the transitions. An
 // application that hand-wrote the same table would have to keep its column
 // names and status values in step with the consumer's ladder.
 type JobRunEntity struct {

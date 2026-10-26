@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -150,9 +150,9 @@ func (g *codeGenerator) generateUniqueIndexHashDualSource(cols []uniqueIndexColI
 	}
 	g.addLine(fmt.Sprintf("%s%s_v := \"\"", indent, keyVar))
 	g.addLine(fmt.Sprintf("%sif e.originRedisValues != nil {", indent))
-	g.addLine(fmt.Sprintf("%s\t%s_v = fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, redisArgs))
+	g.addLine(fmt.Sprintf("%s\t%s_v = orm.UniqueIndexKeyHash(%s)", indent, keyVar, redisArgs))
 	g.addLine(fmt.Sprintf("%s} else {", indent))
-	g.addLine(fmt.Sprintf("%s\t%s_v = fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, dbArgs))
+	g.addLine(fmt.Sprintf("%s\t%s_v = orm.UniqueIndexKeyHash(%s)", indent, keyVar, dbArgs))
 	g.addLine(fmt.Sprintf("%s}", indent))
 	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + %s_v", indent, keyVar, names.providerName, indexSegment(indexName, cols), keyVar))
 }
@@ -169,7 +169,7 @@ func (g *codeGenerator) generateUniqueIndexHashFromDB(cols []uniqueIndexColInfo,
 			args += fmt.Sprintf("e.originDatabaseValues.F%d", c.fIndex)
 		}
 	}
-	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, names.providerName, indexSegment(indexName, cols), args))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + orm.UniqueIndexKeyHash(%s)", indent, keyVar, names.providerName, indexSegment(indexName, cols), args))
 }
 
 func (g *codeGenerator) generateUniqueIndexHashFromVars(cols []uniqueIndexColInfo, idxNum int, indent string, keyVar string, names *entityNames, indexName string) {
@@ -180,7 +180,7 @@ func (g *codeGenerator) generateUniqueIndexHashFromVars(cols []uniqueIndexColInf
 		}
 		args += fmt.Sprintf("_uNewV%d_%d", idxNum, i)
 	}
-	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + fluxaorm.UniqueIndexKeyHash(%s)", indent, keyVar, names.providerName, indexSegment(indexName, cols), args))
+	g.addLine(fmt.Sprintf("%s%s := %s.redisCachePrefix + %q + orm.UniqueIndexKeyHash(%s)", indent, keyVar, names.providerName, indexSegment(indexName, cols), args))
 }
 
 // searchHSetAppendFromOrigin returns generated code lines (with trailing \n) that append a
@@ -530,7 +530,7 @@ func (g *codeGenerator) searchHSetAppendFromVar(f searchableFieldDef, indent, va
 
 func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entityNames) {
 	g.addLine(fmt.Sprintf("type %s struct {", names.entityName))
-	g.addLine("\tctx fluxaorm.Context")
+	g.addLine("\tctx orm.Context")
 	g.addLine("\tid uint64")
 	g.addLine("\tnew bool")
 	g.addLine("\tdeleted bool")
@@ -589,7 +589,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 
 	// PrivateFlush
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateFlush() error {", names.entityName))
-	g.addLine("\tif e.snapshot { return fluxaorm.ErrEntityReadOnly }")
+	g.addLine("\tif e.snapshot { return orm.ErrEntityReadOnly }")
 	g.addLine("\te.flushType = 0")
 	g.addLine("\te.flushChanges = nil")
 	g.addLine("\tif e.removed || (e.new && e.deleted) { return nil }")
@@ -1069,7 +1069,7 @@ func (g *codeGenerator) generateEntityStruct(schema *entitySchema, names *entity
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func (e *%s) PrivateContext() fluxaorm.Context {", names.entityName))
+	g.addLine(fmt.Sprintf("func (e *%s) PrivateContext() orm.Context {", names.entityName))
 	g.addLine("\treturn e.ctx")
 	g.addLine("}")
 	g.addLine("")
@@ -1249,14 +1249,14 @@ func (g *codeGenerator) generatePrivateFlushed(schema *entitySchema, names *enti
 // copy a racing read parked there cannot outlive the reload.
 func (g *codeGenerator) generatePrivateReload(schema *entitySchema, names *entityNames) {
 	g.addLine(fmt.Sprintf("func (e *%s) PrivateReload() (bool, error) {", names.entityName))
-	g.addLine("\tif e.snapshot { return false, fluxaorm.ErrEntityReadOnly }")
+	g.addLine("\tif e.snapshot { return false, orm.ErrEntityReadOnly }")
 	g.appendToLine("\tquery := \"SELECT `ID`")
 	for _, columnName := range schema.GetColumns()[1:] {
 		g.appendToLine(",`" + columnName + "`")
 	}
 	g.addLine(fmt.Sprintf(" FROM `%s` WHERE `ID` = ? LIMIT 1\"", schema.tableName))
 	g.addLine(fmt.Sprintf("\tsqlRow := &%s{}", names.sqlRowName))
-	g.appendToLine(fmt.Sprintf("\tfound, err := e.ctx.DB(%s.dbCode).QueryRow(e.ctx, fluxaorm.NewWhere(query, e.id), &sqlRow.F0", names.providerName))
+	g.appendToLine(fmt.Sprintf("\tfound, err := e.ctx.DB(%s.dbCode).QueryRow(e.ctx, orm.NewWhere(query, e.id), &sqlRow.F0", names.providerName))
 	for i := 1; i < len(schema.columnNames); i++ {
 		g.appendToLine(fmt.Sprintf(", &sqlRow.F%d", i))
 	}

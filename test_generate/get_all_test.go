@@ -3,8 +3,8 @@ package test_generate
 import (
 	"testing"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +24,7 @@ func cachedAllNames(t *testing.T, rows []*entities.GenerateEntityCachedAll) []st
 // set nor for the rows. A GetAll that still ran its SELECT would be an ordinary query with extra
 // Redis traffic bolted on.
 func TestGetAllSecondCallHitsNoDatabase(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedAll{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedAll{})
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		e := entities.GenerateEntityCachedAllProvider.New(ctx)
@@ -42,8 +42,8 @@ func TestGetAllSecondCallHitsNoDatabase(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	sql := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sql, orm.QueryLoggerOptions{MySQL: true})
 
 	second, err := entities.GenerateEntityCachedAllProvider.GetAll(reader)
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestGetAllSecondCallHitsNoDatabase(t *testing.T) {
 // A row added after the set was cached has to show up. The set is invalidated by the write rather
 // than patched, so this also proves the invalidation reaches the all-ids key and not just the rows.
 func TestGetAllSeesRowsInsertedAfterItWasCached(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedAll{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedAll{})
 
 	first := entities.GenerateEntityCachedAllProvider.New(ctx)
 	first.SetName("alpha")
@@ -78,7 +78,7 @@ func TestGetAllSeesRowsInsertedAfterItWasCached(t *testing.T) {
 // Same for a removal: a deleted row must leave the set, or GetAll keeps handing out an id whose
 // row cache entry is already gone.
 func TestGetAllDropsDeletedRows(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedAll{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedAll{})
 
 	keep := entities.GenerateEntityCachedAllProvider.New(ctx)
 	keep.SetName("keep")
@@ -104,7 +104,7 @@ func TestGetAllDropsDeletedRows(t *testing.T) {
 // An empty table caches as a stamp-only list. Without that, a cold key and a genuinely empty table
 // look identical and every GetAll re-runs the SELECT forever.
 func TestGetAllCachesAnEmptyTable(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedAll{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedAll{})
 
 	empty, err := entities.GenerateEntityCachedAllProvider.GetAll(ctx.Clone())
 	require.NoError(t, err)
@@ -113,8 +113,8 @@ func TestGetAllCachesAnEmptyTable(t *testing.T) {
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	sql := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sql, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sql := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sql, orm.QueryLoggerOptions{MySQL: true})
 
 	again, err := entities.GenerateEntityCachedAllProvider.GetAll(reader)
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestGetAllCachesAnEmptyTable(t *testing.T) {
 // A soft delete changes membership without deleting a row, so the UPDATE has to invalidate the set
 // too - otherwise GetAll keeps returning a row the rest of the ORM treats as gone.
 func TestGetAllRespectsFakeDelete(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedAllFakeDelete{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedAllFakeDelete{})
 
 	keep := entities.GenerateEntityCachedAllFakeDeleteProvider.New(ctx)
 	keep.SetName("keep")

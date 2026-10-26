@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities/enums"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/models"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
+	"github.com/DropletLive/orm/test_generate/entities/enums"
+	"github.com/DropletLive/orm/test_generate/models"
 )
 
 var (
@@ -44,9 +44,9 @@ func BenchmarkGetByIDs10(b *testing.B) {
 	})
 }
 
-func benchmarkGetByIDs10[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaorm.Engine,
+func benchmarkGetByIDs10[T getByIDsBenchmarkEntity](b *testing.B, engine orm.Engine,
 	ids []uint64, referenceID uint64, disableContextCache bool, wantSQL, wantRedis int,
-	get func(fluxaorm.Context, ...uint64) ([]T, error), sink *[]T,
+	get func(orm.Context, ...uint64) ([]T, error), sink *[]T,
 ) {
 	ctx := engine.NewContext(context.Background())
 	if disableContextCache {
@@ -72,9 +72,9 @@ func benchmarkGetByIDs10[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaor
 
 	// Attach loggers only after stopping the timer: they allocate per query.
 	// Probe the actual measured context to catch an unintended cache/fallback path.
-	sqlLog, redisLog := &fluxaorm.MockLogHandler{}, &fluxaorm.MockLogHandler{}
-	ctx.RegisterQueryLogger(sqlLog, fluxaorm.QueryLoggerOptions{MySQL: true})
-	ctx.RegisterQueryLogger(redisLog, fluxaorm.QueryLoggerOptions{Redis: true})
+	sqlLog, redisLog := &orm.MockLogHandler{}, &orm.MockLogHandler{}
+	ctx.RegisterQueryLogger(sqlLog, orm.QueryLoggerOptions{MySQL: true})
+	ctx.RegisterQueryLogger(redisLog, orm.QueryLoggerOptions{Redis: true})
 	rows, err = get(ctx, ids...)
 	if err != nil {
 		b.Fatal(err)
@@ -93,7 +93,7 @@ func benchmarkGetByIDs10[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaor
 	*sink = nil
 }
 
-func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
+func prepareGetByIDs10(b *testing.B) (orm.Engine, []uint64, uint64) {
 	b.Helper()
 	dsn := os.Getenv("FLUXAORM_BENCH_MYSQL_DSN")
 	redisAddress := os.Getenv("FLUXAORM_BENCH_REDIS_ADDR")
@@ -108,19 +108,19 @@ func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
 			b.Fatal("FLUXAORM_BENCH_REDIS_DB must be a non-negative integer")
 		}
 	}
-	registry := fluxaorm.NewRegistry()
-	registry.RegisterMySQL(dsn, fluxaorm.DefaultPoolCode, &fluxaorm.MySQLOptions{})
-	registry.RegisterRedis(redisAddress, redisDB, fluxaorm.DefaultPoolCode, nil)
+	registry := orm.NewRegistry()
+	registry.RegisterMySQL(dsn, orm.DefaultPoolCode, &orm.MySQLOptions{})
+	registry.RegisterRedis(redisAddress, redisDB, orm.DefaultPoolCode, nil)
 	registry.RegisterEntity(generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{})
 	engine, err := registry.Validate()
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.Cleanup(func() {
-		if err := engine.Redis(fluxaorm.DefaultPoolCode).Client().Close(); err != nil {
+		if err := engine.Redis(orm.DefaultPoolCode).Client().Close(); err != nil {
 			b.Error(err)
 		}
-		if err := engine.DB(fluxaorm.DefaultPoolCode).GetDBClient().(*sql.DB).Close(); err != nil {
+		if err := engine.DB(orm.DefaultPoolCode).GetDBClient().(*sql.DB).Close(); err != nil {
 			b.Error(err)
 		}
 	})
@@ -130,7 +130,7 @@ func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
 		entities.GenerateEntityNoRedisProvider.TableName():   true,
 		entities.GenerateReferenceEntityProvider.TableName(): true,
 	}
-	alters, err := fluxaorm.GetAlters(ctx)
+	alters, err := orm.GetAlters(ctx)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
 		if !tables[alter.Table] {
 			continue
 		}
-		if alter.Kind != fluxaorm.AlterKindCreateTable {
+		if alter.Kind != orm.AlterKindCreateTable {
 			b.Fatalf("benchmark fixture %s needs %s; use a dedicated database with current fixture tables",
 				alter.Table, alter.Kind)
 		}
@@ -149,7 +149,7 @@ func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
 
 	referenceID := engine.NextID()
 	referenceTable := entities.GenerateReferenceEntityProvider.TableName()
-	_, err = ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx,
+	_, err = ctx.DB(orm.DefaultPoolCode).Exec(ctx,
 		"INSERT INTO `"+referenceTable+"` (`ID`,`Name`,`FakeDelete`) VALUES (?, ?, false)", referenceID, "getbyids-reference")
 	if err != nil {
 		b.Fatal(err)
@@ -165,7 +165,7 @@ func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
 				"`TestEnumOptional`,`Byte`,`TestSet`,`TestSetOptional`,`BoolNullable`,`FloatNullable`,`TimeNullable`," +
 				"`DateNullable`,`JsonAddress`,`Size`,`TestSubSize`) VALUES (" + strings.TrimSuffix(strings.Repeat("?,", 27), ",") + ")"
 			tags := "[" + strconv.FormatUint(referenceID, 10) + "]"
-			_, err = ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx, query,
+			_, err = ctx.DB(orm.DefaultPoolCode).Exec(ctx, query,
 				ids[i], 20+i, referenceID, referenceID, tags, tags,
 				-5, true, 12.5, "2026-01-02 03:04:05", "2026-01-02", fmt.Sprintf("getbyids-entity-%02d", i), strings.Repeat("x", 64),
 				30, -7, "b", "c", strings.Repeat("b", 32), "a,c", "b,c", true, 3.25,
@@ -183,17 +183,17 @@ func prepareGetByIDs10(b *testing.B) (fluxaorm.Engine, []uint64, uint64) {
 	return engine, ids, referenceID
 }
 
-func cleanupGetByIDsRow(b *testing.B, ctx fluxaorm.Context, table string, id uint64, cacheKey string) {
+func cleanupGetByIDsRow(b *testing.B, ctx orm.Context, table string, id uint64, cacheKey string) {
 	b.Helper()
 	// Registered only after a successful INSERT, so an ID/index conflict cannot
 	// make cleanup delete a pre-existing row. No tables or whole caches are cleared.
 	b.Cleanup(func() {
-		_, err := ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx, "DELETE FROM `"+table+"` WHERE `ID` = ?", id)
+		_, err := ctx.DB(orm.DefaultPoolCode).Exec(ctx, "DELETE FROM `"+table+"` WHERE `ID` = ?", id)
 		if err != nil {
 			b.Error(err)
 		}
 		if cacheKey != "" {
-			if err := ctx.Engine().Redis(fluxaorm.DefaultPoolCode).Del(ctx, cacheKey); err != nil {
+			if err := ctx.Engine().Redis(orm.DefaultPoolCode).Del(ctx, cacheKey); err != nil {
 				b.Error(err)
 			}
 		}

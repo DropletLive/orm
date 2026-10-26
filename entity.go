@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 type Entity interface {
 	PrivateFlush() error

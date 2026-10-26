@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 
 // ErrEntityNeedsRegeneration rejects generated code without transactional state
 // snapshots. Continuing with that code would silently lose repeated writes.
-var ErrEntityNeedsRegeneration = errors.New("generated entity needs regeneration with fluxaorm.Generate to support transactional write snapshots")
+var ErrEntityNeedsRegeneration = errors.New("generated entity needs regeneration with orm.Generate to support transactional write snapshots")
 
 // ErrEntityReadOnly protects the frozen entity views passed to after callbacks.
 // Obtain the live entity from its provider to make another write.

@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ func (g *codeGenerator) generateEntityEventForEntity(schema *entitySchema, names
 	g.addLine("// are map[string]any keyed by entity column names - Insert sets only After,")
 	g.addLine("// Delete sets only Before, Update sets both. Values originate from JSON decode,")
 	g.addLine("// so numbers arrive as json.Number; use type-asserting helpers when reading them.")
-	g.addLine(fmt.Sprintf("type %sDirtyEvent = fluxaorm.DirtyEvent[map[string]any]", entityName))
+	g.addLine(fmt.Sprintf("type %sDirtyEvent = orm.DirtyEvent[map[string]any]", entityName))
 	g.addLine("")
 
 	// snapshotAfter helper - overlays pending databaseBind values onto origin
@@ -63,18 +63,18 @@ func (g *codeGenerator) generateEntityEventForEntity(schema *entitySchema, names
 	g.addLine("}")
 	g.addLine("")
 
-	g.addLine(fmt.Sprintf("func %s(e *%s, op fluxaorm.DirtyOp, beforeOrigin map[string]any) ([]byte, error) {", buildEventFn, entityName))
+	g.addLine(fmt.Sprintf("func %s(e *%s, op orm.DirtyOp, beforeOrigin map[string]any) ([]byte, error) {", buildEventFn, entityName))
 	g.addLine(fmt.Sprintf("\tev := &%sDirtyEvent{Op: op, ID: e.GetID(), TsMs: time.Now().UnixMilli()}", entityName))
 	g.addLine("\tswitch op {")
-	g.addLine("\tcase fluxaorm.DirtyInsert:")
+	g.addLine("\tcase orm.DirtyInsert:")
 	g.addLine(fmt.Sprintf("\t\tsnap := %s(e)", snapshotAfterFn))
 	g.addLine("\t\tev.After = &snap")
-	g.addLine("\tcase fluxaorm.DirtyUpdate:")
+	g.addLine("\tcase orm.DirtyUpdate:")
 	g.addLine(fmt.Sprintf("\t\tsnapBefore := %s(e)", snapshotBeforeFn))
 	g.addLine(fmt.Sprintf("\t\tsnapAfter := %s(e)", snapshotAfterFn))
 	g.addLine("\t\tev.Before = &snapBefore")
 	g.addLine("\t\tev.After = &snapAfter")
-	g.addLine("\tcase fluxaorm.DirtyDelete:")
+	g.addLine("\tcase orm.DirtyDelete:")
 	g.addLine(fmt.Sprintf("\t\tsnapBefore := %s(e)", snapshotBeforeFn))
 	g.addLine("\t\tev.Before = &snapBefore")
 	g.addLine("\t}")
@@ -83,9 +83,9 @@ func (g *codeGenerator) generateEntityEventForEntity(schema *entitySchema, names
 	g.addLine("")
 
 	// The publisher registers under the table name; the subject format belongs
-	// to fluxaorm, so generated code never spells one out.
+	// to orm, so generated code never spells one out.
 	g.addLine("func init() {")
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterEntityPublisher[%s](%q, %s)", entityName, schema.tableName, buildEventFn))
+	g.addLine(fmt.Sprintf("\torm.RegisterEntityPublisher[%s](%q, %s)", entityName, schema.tableName, buildEventFn))
 	g.addLine("}")
 	g.addLine("")
 }
@@ -134,15 +134,15 @@ func (g *codeGenerator) generateConsumersFile(reg *engineRegistryImplementation)
 
 	g.body = ""
 	g.imports = make(map[string]bool)
-	g.addImport("github.com/latolukasz/fluxaorm/v2")
+	g.addImport("github.com/DropletLive/orm")
 
 	g.addLine("// Consumer typed handles. Each pairs a declared consumer name with the")
-	g.addLine("// generated builder factory so fluxaorm.NewConsumer resolves the right typed")
+	g.addLine("// generated builder factory so orm.NewConsumer resolves the right typed")
 	g.addLine("// builder via Go generics.")
 	g.addLine("var (")
 	for _, consumer := range consumers {
 		ident := consumerIdent(consumer.name)
-		g.addLine(fmt.Sprintf("\tConsumer%s = fluxaorm.NewConsumerRef[%sBuilder](%q, []fluxaorm.Subject{",
+		g.addLine(fmt.Sprintf("\tConsumer%s = orm.NewConsumerRef[%sBuilder](%q, []orm.Subject{",
 			ident, ident, consumer.name))
 		for _, subject := range consumer.subjects {
 			g.addLine(fmt.Sprintf("\t\t%q,", subject))
@@ -154,7 +154,7 @@ func (g *codeGenerator) generateConsumersFile(reg *engineRegistryImplementation)
 
 	g.addLine("// AllConsumers lists every generated consumer so apps can assert that exactly")
 	g.addLine("// one job drains each one.")
-	g.addLine("var AllConsumers = []fluxaorm.ConsumerHandle{")
+	g.addLine("var AllConsumers = []orm.ConsumerHandle{")
 	for _, consumer := range consumers {
 		g.addLine(fmt.Sprintf("\tConsumer%s,", consumerIdent(consumer.name)))
 	}
@@ -165,7 +165,7 @@ func (g *codeGenerator) generateConsumersFile(reg *engineRegistryImplementation)
 	g.addLine("// so apps can drive their own per-consumer metadata from the declaration")
 	g.addLine("// rather than from a hand-maintained list that silently drifts. Task")
 	g.addLine("// consumers are absent: they declare queues, not entities.")
-	g.addLine("var ConsumerEntities = map[fluxaorm.ConsumerName][]fluxaorm.EntityProvider{")
+	g.addLine("var ConsumerEntities = map[orm.ConsumerName][]orm.EntityProvider{")
 	for _, consumer := range consumers {
 		if len(consumer.entities) == 0 {
 			continue
@@ -217,11 +217,11 @@ func (g *codeGenerator) generateDispatchFunctions(
 		g.addLine("// cannot roll back with it, so the task would run against data that never")
 		g.addLine("// existed. Dispatch after the commit.")
 		g.addLine(fmt.Sprintf("func Dispatch%s(", schema.name))
-		g.addLine("	orm fluxaorm.Context,")
+		g.addLine("	orm orm.Context,")
 		g.addLine(fmt.Sprintf("	task *%s,", qualified))
-		g.addLine("	opts ...fluxaorm.DispatchOption,")
+		g.addLine("	opts ...orm.DispatchOption,")
 		g.addLine(") (uint64, error) {")
-		g.addLine("	return fluxaorm.DispatchTask(orm, task, opts...)")
+		g.addLine("	return orm.DispatchTask(orm, task, opts...)")
 		g.addLine("}")
 	}
 }
@@ -244,7 +244,7 @@ func sortedTasks(reg *engineRegistryImplementation) []*taskSchema {
 // /vN module path makes the last segment wrong.
 func taskPackageAliases(reg *engineRegistryImplementation) map[string]string {
 	aliases := make(map[string]string)
-	taken := map[string]bool{"fluxaorm": true}
+	taken := map[string]bool{"orm": true}
 
 	for _, schema := range sortedTasks(reg) {
 		if _, has := aliases[schema.pkgPath]; has {
@@ -284,17 +284,17 @@ func (g *codeGenerator) generateConsumerBuilderFile(
 
 	g.body = ""
 	g.imports = make(map[string]bool)
-	g.addImport("github.com/latolukasz/fluxaorm/v2")
+	g.addImport("github.com/DropletLive/orm")
 
 	g.addLine(fmt.Sprintf("// %s is the typed builder for the %q consumer.", builderTypeName, consumer.name))
-	g.addLine(fmt.Sprintf("// Returned by fluxaorm.NewConsumer(engine, Consumer%s).", ident))
+	g.addLine(fmt.Sprintf("// Returned by orm.NewConsumer(engine, Consumer%s).", ident))
 	g.addLine(fmt.Sprintf("type %s struct {", builderTypeName))
-	g.addLine("\t*fluxaorm.ConsumerBuilder")
+	g.addLine("\t*orm.ConsumerBuilder")
 	g.addLine("}")
 	g.addLine("")
 
 	g.addLine(fmt.Sprintf("// %s is the factory closure stored in the ConsumerRef; users never call it directly.", factoryFn))
-	g.addLine(fmt.Sprintf("func %s(core *fluxaorm.ConsumerBuilder) *%s {", factoryFn, builderTypeName))
+	g.addLine(fmt.Sprintf("func %s(core *orm.ConsumerBuilder) *%s {", factoryFn, builderTypeName))
 	g.addLine(fmt.Sprintf("\treturn &%s{ConsumerBuilder: core}", builderTypeName))
 	g.addLine("}")
 	g.addLine("")
@@ -308,9 +308,9 @@ func (g *codeGenerator) generateConsumerBuilderFile(
 		g.addLine("// Returning nil acks the task; returning err retries it with backoff up to its")
 		g.addLine("// attempt cap, after which it is terminated and its run row marked failed.")
 		g.addLine(fmt.Sprintf("func (b *%s) %s(", builderTypeName, methodName))
-		g.addLine(fmt.Sprintf("	handler func(ctx fluxaorm.Context, task *%s) error,", qualified))
+		g.addLine(fmt.Sprintf("	handler func(ctx orm.Context, task *%s) error,", qualified))
 		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
-		g.addLine(fmt.Sprintf("	b.AddDispatch(%q, fluxaorm.BuildTaskDispatch(handler))", schema.name))
+		g.addLine(fmt.Sprintf("	b.AddDispatch(%q, orm.BuildTaskDispatch(handler))", schema.name))
 		g.addLine("	return b")
 		g.addLine("}")
 		g.addLine("")
@@ -323,10 +323,10 @@ func (g *codeGenerator) generateConsumerBuilderFile(
 		g.addLine(fmt.Sprintf("// %s registers a typed handler for %s changes on the %q consumer.", methodName, entityName, consumer.name))
 		g.addLine("// Returning nil from the handler acks the message; returning err redelivers it.")
 		g.addLine(fmt.Sprintf("func (b *%s) %s(", builderTypeName, methodName))
-		g.addLine(fmt.Sprintf("\thandler func(ctx fluxaorm.Context, ev *%sDirtyEvent) error,", entityName))
-		g.addLine("\topts ...fluxaorm.HandlerOption,")
+		g.addLine(fmt.Sprintf("\thandler func(ctx orm.Context, ev *%sDirtyEvent) error,", entityName))
+		g.addLine("\topts ...orm.HandlerOption,")
 		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
-		g.addLine(fmt.Sprintf("\tb.AddDispatch(%q, fluxaorm.BuildDispatch[map[string]any](handler, opts...))", entityName))
+		g.addLine(fmt.Sprintf("\tb.AddDispatch(%q, orm.BuildDispatch[map[string]any](handler, opts...))", entityName))
 		g.addLine("\treturn b")
 		g.addLine("}")
 		g.addLine("")
@@ -337,10 +337,10 @@ func (g *codeGenerator) generateConsumerBuilderFile(
 		g.addLine("// them all; returning err redelivers them all, so the handler must be idempotent.")
 		g.addLine(fmt.Sprintf("// Registering both %s and %s for the same entity panics at Build().", methodName, batchMethodName))
 		g.addLine(fmt.Sprintf("func (b *%s) %s(", builderTypeName, batchMethodName))
-		g.addLine(fmt.Sprintf("\thandler func(ctx fluxaorm.Context, evs []*%sDirtyEvent) error,", entityName))
-		g.addLine("\topts ...fluxaorm.HandlerOption,")
+		g.addLine(fmt.Sprintf("\thandler func(ctx orm.Context, evs []*%sDirtyEvent) error,", entityName))
+		g.addLine("\topts ...orm.HandlerOption,")
 		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
-		g.addLine(fmt.Sprintf("\tb.AddBatchDispatch(%q, fluxaorm.BuildBatchDispatch[map[string]any](handler, opts...))", entityName))
+		g.addLine(fmt.Sprintf("\tb.AddBatchDispatch(%q, orm.BuildBatchDispatch[map[string]any](handler, opts...))", entityName))
 		g.addLine("\treturn b")
 		g.addLine("}")
 		g.addLine("")
@@ -356,7 +356,7 @@ func (g *codeGenerator) writeGeneratedFile(name string) error {
 	if err != nil {
 		return err
 	}
-	g.writeToFile(f, "// Code generated by fluxaorm; DO NOT EDIT.\n\n")
+	g.writeToFile(f, "// Code generated by orm; DO NOT EDIT.\n\n")
 	g.writeToFile(f, "package "+filepath.Base(g.dir)+"\n\n")
 	g.writeImports(f)
 	g.writeToFile(f, g.body)

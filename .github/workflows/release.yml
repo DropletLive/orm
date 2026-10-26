@@ -3,9 +3,9 @@ name: Release build and tests
 on:
   push:
     branches:
-      - v2
+      - main
     tags:
-      - 'v2.*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
       # Actions services do not accept a command override; JetStream needs -js.
       - name: Start NATS JetStream
         run: |
-          docker run --detach --name fluxaorm-ci-nats \
+          docker run --detach --name orm-ci-nats \
             --publish 9944:4222 --publish 9945:8222 \
             nats:2.10-alpine -js -m 8222
           curl --fail --silent --show-error \
@@ -107,8 +107,8 @@ jobs:
           docker logs "$MYSQL_CONTAINER"
           docker logs "$REDIS_CONTAINER"
           docker logs "$CLICKHOUSE_CONTAINER"
-          docker logs fluxaorm-ci-nats || true
+          docker logs orm-ci-nats || true
 
       - name: Stop NATS
         if: always()
-        run: docker rm --force fluxaorm-ci-nats || true
+        run: docker rm --force orm-ci-nats || true

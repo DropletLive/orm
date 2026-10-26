@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 )
 
 var (
@@ -35,9 +35,9 @@ func BenchmarkGetByID1(b *testing.B) {
 	})
 }
 
-func benchmarkGetByID1[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaorm.Engine,
+func benchmarkGetByID1[T getByIDsBenchmarkEntity](b *testing.B, engine orm.Engine,
 	ids []uint64, referenceID uint64, disableContextCache bool, wantSQL, wantRedis int,
-	get func(fluxaorm.Context, uint64) (T, error), sink *T,
+	get func(orm.Context, uint64) (T, error), sink *T,
 ) {
 	ctx := engine.NewContext(context.Background())
 	if disableContextCache {
@@ -63,9 +63,9 @@ func benchmarkGetByID1[T getByIDsBenchmarkEntity](b *testing.B, engine fluxaorm.
 
 	// Check the actual measured context after stopping the timer, so logger and
 	// getter allocations cannot contribute to the reported GetByID allocations.
-	sqlLog, redisLog := &fluxaorm.MockLogHandler{}, &fluxaorm.MockLogHandler{}
-	ctx.RegisterQueryLogger(sqlLog, fluxaorm.QueryLoggerOptions{MySQL: true})
-	ctx.RegisterQueryLogger(redisLog, fluxaorm.QueryLoggerOptions{Redis: true})
+	sqlLog, redisLog := &orm.MockLogHandler{}, &orm.MockLogHandler{}
+	ctx.RegisterQueryLogger(sqlLog, orm.QueryLoggerOptions{MySQL: true})
+	ctx.RegisterQueryLogger(redisLog, orm.QueryLoggerOptions{Redis: true})
 	entity, err = get(ctx, id)
 	if err != nil {
 		b.Fatalf("verification GetByID: err=%v", err)

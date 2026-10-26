@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"bytes"
@@ -53,7 +53,7 @@ func dirtyOpLabel(headerValue string) string {
 // DirtyEvent is the typed change envelope published when an entity tagged
 // `orm:"cdc"` is flushed. The generator emits per-entity aliases:
 //
-//	type OrdersDirtyEvent = fluxaorm.DirtyEvent[Orders]
+//	type OrdersDirtyEvent = orm.DirtyEvent[Orders]
 type DirtyEvent[T any] struct {
 	Op     DirtyOp `json:"op"`
 	ID     uint64  `json:"id"`
@@ -232,7 +232,7 @@ var dirtyPublishers = make(map[reflect.Type]*dirtyPublisherEntry)
 // entity type and the JSON payload type stay independent.
 //
 // The table name is the argument rather than the subject because the subject
-// format is fluxaorm's to own; generated code names the table it already knows.
+// format is orm's to own; generated code names the table it already knows.
 //
 // Duplicate registrations for the same E silently replace, so re-running tests
 // with hot-reload doesn't error.
@@ -306,7 +306,7 @@ func withSchemaConfig(entry *dirtyPublisherEntry, schema *entitySchema) *dirtyPu
 }
 
 // generatedEntityName produces the Go identifier for the entity struct that
-// fluxaorm.Generate emits from a schema's tableName. Mirrors codeGenerator's
+// orm.Generate emits from a schema's tableName. Mirrors codeGenerator's
 // capitalizeFirst (split on `_`, capitalize each part's first letter) so the
 // publisher-name lookup at Validate() time matches the name the generator used.
 func generatedEntityName(tableName string) string {

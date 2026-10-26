@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,14 +30,14 @@ func TestGetByIDUint64Boundaries(t *testing.T) {
 }
 
 func checkGetByIDUint64[T getByIDsTestEntity](t *testing.T, fixture any, table string,
-	get func(fluxaorm.Context, uint64) (T, error),
+	get func(orm.Context, uint64) (T, error),
 ) {
 	t.Helper()
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), fixture)
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), fixture)
 	ids := []uint64{0, uint64(math.MaxInt64) + 1, math.MaxUint64}
 	for _, id := range ids {
 		literal := strconv.FormatUint(id, 10)
-		_, err := ctx.DB(fluxaorm.DefaultPoolCode).Exec(ctx,
+		_, err := ctx.DB(orm.DefaultPoolCode).Exec(ctx,
 			"INSERT INTO `"+table+"` (`ID`,`Name`,`CreatedAt`,`UpdatedAt`) VALUES ("+literal+", ?, ?, ?)",
 			literal, "2026-01-02 03:04:05", "2026-01-02 03:04:05")
 		require.NoError(t, err)
@@ -64,46 +64,46 @@ func checkGetByIDUint64[T getByIDsTestEntity](t *testing.T, fixture any, table s
 		require.Same(t, original, repeated)
 	}
 	_, err := get(reader, 123)
-	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	require.ErrorAs(t, err, new(*orm.NotFoundError))
 }
 
 func TestNotFoundError(t *testing.T) {
 	registry := FixtureRegistry()
-	ctx := fluxaorm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
+	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
 	defer ctx.Engine().Nats("nats").Close()
 
 	_, err := entities.GenerateEntityProvider.GetByID(ctx, 123)
-	notFound, ok := errors.AsType[*fluxaorm.NotFoundError](err)
+	notFound, ok := errors.AsType[*orm.NotFoundError](err)
 	require.True(t, ok)
-	require.Equal(t, fluxaorm.NotFoundError{Entity: "generateEntity", ID: 123}, *notFound)
+	require.Equal(t, orm.NotFoundError{Entity: "generateEntity", ID: 123}, *notFound)
 	require.EqualError(t, err, "generateEntity 123 not found")
 
-	_, err = entities.GenerateEntityProvider.SearchOne(ctx, fluxaorm.NewQuery())
-	notFound, ok = errors.AsType[*fluxaorm.NotFoundError](err)
+	_, err = entities.GenerateEntityProvider.SearchOne(ctx, orm.NewQuery())
+	notFound, ok = errors.AsType[*orm.NotFoundError](err)
 	require.True(t, ok)
-	require.Equal(t, fluxaorm.NotFoundError{Entity: "generateEntity"}, *notFound)
+	require.Equal(t, orm.NotFoundError{Entity: "generateEntity"}, *notFound)
 
 	_, err = entities.GenerateEntityProvider.New(ctx).GetReferenceOptional(ctx)
-	notFound, ok = errors.AsType[*fluxaorm.NotFoundError](err)
+	notFound, ok = errors.AsType[*orm.NotFoundError](err)
 	require.True(t, ok)
-	require.Equal(t, fluxaorm.NotFoundError{Entity: "generateReferenceEntity"}, *notFound)
+	require.Equal(t, orm.NotFoundError{Entity: "generateReferenceEntity"}, *notFound)
 }
 
 func TestGetByIDNegativeCacheAndStamp(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	provider := entities.GenerateEntityWithTimestampsRedisProvider
 	reader := ctx.Clone()
 	reader.DisableContextCache()
-	logs := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(logs, fluxaorm.QueryLoggerOptions{MySQL: true})
+	logs := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(logs, orm.QueryLoggerOptions{MySQL: true})
 	missingID := ctx.Engine().NextID()
 	row, err := provider.GetByID(reader, missingID)
-	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	require.ErrorAs(t, err, new(*orm.NotFoundError))
 	require.Nil(t, row)
 	require.Equal(t, 1, countSelects(logs))
 	logs.Clear()
 	row, err = provider.GetByID(reader, missingID)
-	require.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	require.ErrorAs(t, err, new(*orm.NotFoundError))
 	require.Nil(t, row)
 	require.Zero(t, countSelects(logs), "the second missing read must use the negative cache")
 	created := provider.New(ctx).SetName("persisted")
@@ -112,7 +112,7 @@ func TestGetByIDNegativeCacheAndStamp(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "persisted", row.GetName())
 	key := provider.RedisCachePrefix() + strconv.FormatUint(created.GetID(), 10)
-	require.NoError(t, ctx.Engine().Redis(fluxaorm.DefaultPoolCode).LSet(ctx, key, 0, "old-stamp"))
+	require.NoError(t, ctx.Engine().Redis(orm.DefaultPoolCode).LSet(ctx, key, 0, "old-stamp"))
 	logs.Clear()
 	row, err = provider.GetByID(reader, created.GetID())
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestGetByIDNegativeCacheAndStamp(t *testing.T) {
 }
 
 func TestGetByIDTransactionReadsOwnWrites(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	provider := entities.GenerateEntityWithTimestampsRedisProvider
 	row := provider.New(ctx).SetName("cached")
 	require.NoError(t, ctx.Save(row))
@@ -133,11 +133,11 @@ func TestGetByIDTransactionReadsOwnWrites(t *testing.T) {
 	reader.DisableContextCache()
 	_, err := provider.GetByID(reader, row.GetID())
 	require.NoError(t, err)
-	redisLog := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(redisLog, fluxaorm.QueryLoggerOptions{Redis: true})
+	redisLog := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(redisLog, orm.QueryLoggerOptions{Redis: true})
 	abort := errors.New("rollback the parity update")
-	err = reader.Transaction(func(tx fluxaorm.Context) error {
-		_, err := tx.DB(fluxaorm.DefaultPoolCode).Exec(tx,
+	err = reader.Transaction(func(tx orm.Context) error {
+		_, err := tx.DB(orm.DefaultPoolCode).Exec(tx,
 			"UPDATE `generateEntityWithTimestampsRedis` SET `Name` = ? WHERE `ID` = ?", "inside", row.GetID())
 		if err != nil {
 			return err
@@ -152,20 +152,20 @@ func TestGetByIDTransactionReadsOwnWrites(t *testing.T) {
 }
 
 func TestGetByIDPropagatesQueryAndScanErrors(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
-	db := ctx.Engine().DB(fluxaorm.DefaultPoolCode)
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
+	db := ctx.Engine().DB(orm.DefaultPoolCode)
 	original := db.GetDBClient()
 	failed := original.QueryRow("SELECT get_by_id_deliberately_missing_column")
 	expected := failed.Err()
 	require.Error(t, expected)
-	db.SetMockDBClient(&fluxaorm.MockDBClient{OriginDB: original,
+	db.SetMockDBClient(&orm.MockDBClient{OriginDB: original,
 		QueryRowMock: func(string, ...any) *sql.Row { return failed },
 	})
 	defer db.SetMockDBClient(original)
 	row, err := entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, 123)
 	require.ErrorIs(t, err, expected)
 	require.Nil(t, row)
-	db.SetMockDBClient(&fluxaorm.MockDBClient{OriginDB: original,
+	db.SetMockDBClient(&orm.MockDBClient{OriginDB: original,
 		QueryRowMock: func(string, ...any) *sql.Row { return original.QueryRow("SELECT 123") },
 	})
 	row, err = entities.GenerateEntityWithTimestampsProvider.GetByID(ctx, 123)
@@ -174,7 +174,7 @@ func TestGetByIDPropagatesQueryAndScanErrors(t *testing.T) {
 }
 
 func TestGetByIDPropagatesRedisError(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	row, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByID(ctx.CloneWithContext(canceled), 123)
@@ -198,7 +198,7 @@ func (v *getByIDProtocolValues) destinations(adapt bool) []any {
 	values := []any{&v.id, &v.double, &v.decimal, &v.nullInt, &v.nullReal, &v.dateTime, &v.date, &v.bytes, &v.json}
 	if adapt {
 		for i := range values {
-			values[i] = fluxaorm.SQLScanTarget(values[i])
+			values[i] = orm.SQLScanTarget(values[i])
 		}
 	}
 	return values
@@ -209,8 +209,8 @@ func (v *getByIDProtocolValues) destinations(adapt bool) []any {
 // standard Scan destinations. FLOAT columns retain the parameterized query;
 // their separate regression below covers MySQL's text protocol rounding.
 func TestGetByIDMySQLProtocolParity(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry())
-	db := ctx.Engine().DB(fluxaorm.DefaultPoolCode).GetDBClient().(*sql.DB)
+	ctx := orm.PrepareTables(t, orm.NewRegistry())
+	db := ctx.Engine().DB(orm.DefaultPoolCode).GetDBClient().(*sql.DB)
 	for _, tc := range []struct {
 		name   string
 		double string
@@ -248,7 +248,7 @@ func TestGetByIDMySQLProtocolParity(t *testing.T) {
 	before := sql.NullInt64{Int64: 99}
 	after := before
 	require.Error(t, prepared.QueryRow().Scan(&before))
-	require.Error(t, db.QueryRow(query).Scan(fluxaorm.SQLScanTarget(&after)))
+	require.Error(t, db.QueryRow(query).Scan(orm.SQLScanTarget(&after)))
 	require.Equal(t, before, after)
 }
 
@@ -285,12 +285,12 @@ type getByIDDouble struct {
 // query choice for all supported field forms so the precision guard cannot
 // silently disappear while the normal DOUBLE fixture keeps passing.
 func TestGetByIDFloatQueryProtocol(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), getByIDFloat32{}, getByIDNullableFloat32{},
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), getByIDFloat32{}, getByIDNullableFloat32{},
 		getByIDNestedFloat32{}, getByIDDecimalFloat32{}, getByIDDouble{})
 	directory, err := os.MkdirTemp(".", "get_by_id_protocol_")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
-	require.NoError(t, fluxaorm.Generate(ctx.Engine(), directory))
+	require.NoError(t, orm.Generate(ctx.Engine(), directory))
 	for _, tc := range []struct {
 		name      string
 		parameter bool
@@ -322,8 +322,8 @@ func TestGetByIDFloatQueryProtocol(t *testing.T) {
 }
 
 func TestGetByIDMySQLFloatColumnParity(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry())
-	db := ctx.Engine().DB(fluxaorm.DefaultPoolCode).GetDBClient().(*sql.DB)
+	ctx := orm.PrepareTables(t, orm.NewRegistry())
+	db := ctx.Engine().DB(orm.DefaultPoolCode).GetDBClient().(*sql.DB)
 	conn, err := db.Conn(context.Background())
 	require.NoError(t, err)
 	defer conn.Close()
@@ -348,9 +348,9 @@ func TestGetByIDMySQLFloatColumnParity(t *testing.T) {
 			// keep it; DOUBLE can use a literal and avoid a transient prepare.
 			require.NoError(t, conn.QueryRowContext(context.Background(), query+"?", i).Scan(&before))
 			if column == "F" {
-				err = conn.QueryRowContext(context.Background(), query+"?", i).Scan(fluxaorm.SQLScanTarget(&after))
+				err = conn.QueryRowContext(context.Background(), query+"?", i).Scan(orm.SQLScanTarget(&after))
 			} else {
-				err = conn.QueryRowContext(context.Background(), query+strconv.Itoa(i)).Scan(fluxaorm.SQLScanTarget(&after))
+				err = conn.QueryRowContext(context.Background(), query+strconv.Itoa(i)).Scan(orm.SQLScanTarget(&after))
 			}
 			require.NoError(t, err)
 			require.Equal(t, before.Valid, after.Valid)

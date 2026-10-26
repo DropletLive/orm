@@ -9,37 +9,37 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetByIDsOrderDuplicatesAndMissing(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
 		checkGetByIDsOrder(t, generateEntityWithTimestamps{},
-			func(ctx fluxaorm.Context, name string) *entities.GenerateEntityWithTimestamps {
+			func(ctx orm.Context, name string) *entities.GenerateEntityWithTimestamps {
 				return entities.GenerateEntityWithTimestampsProvider.New(ctx).SetName(name)
 			}, entities.GenerateEntityWithTimestampsProvider.GetByIDs)
 	})
 	t.Run("Redis", func(t *testing.T) {
 		checkGetByIDsOrder(t, generateEntityWithTimestampsRedis{},
-			func(ctx fluxaorm.Context, name string) *entities.GenerateEntityWithTimestampsRedis {
+			func(ctx orm.Context, name string) *entities.GenerateEntityWithTimestampsRedis {
 				return entities.GenerateEntityWithTimestampsRedisProvider.New(ctx).SetName(name)
 			}, entities.GenerateEntityWithTimestampsRedisProvider.GetByIDs)
 	})
 }
 
 type getByIDsTestEntity interface {
-	fluxaorm.Entity
+	orm.Entity
 	GetID() uint64
 	GetName() string
 }
 
 func checkGetByIDsOrder[T getByIDsTestEntity](t *testing.T, fixture any,
-	create func(fluxaorm.Context, string) T, get func(fluxaorm.Context, ...uint64) ([]T, error),
+	create func(orm.Context, string) T, get func(orm.Context, ...uint64) ([]T, error),
 ) {
 	t.Helper()
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), fixture)
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), fixture)
 	ids := make([]uint64, 40)
 	seeded := make([]T, len(ids))
 	names := make(map[uint64]string, len(ids))
@@ -107,7 +107,7 @@ func checkGetByIDsOrder[T getByIDsTestEntity](t *testing.T, fixture any,
 }
 
 func TestGetByIDsMixedCachesAndNegativeHits(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	provider := entities.GenerateEntityWithTimestampsRedisProvider
 	contextRow := provider.New(ctx).SetName("context")
 	redisRow := provider.New(ctx).SetName("redis")
@@ -122,8 +122,8 @@ func TestGetByIDsMixedCachesAndNegativeHits(t *testing.T) {
 	reader := ctx.Clone()
 	contextHandle, err := provider.GetByID(reader, contextRow.GetID())
 	require.NoError(t, err)
-	sqlLog := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(sqlLog, fluxaorm.QueryLoggerOptions{MySQL: true})
+	sqlLog := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(sqlLog, orm.QueryLoggerOptions{MySQL: true})
 	input := []uint64{negativeID, sqlRow.GetID(), contextRow.GetID(), redisRow.GetID(), missingID, sqlRow.GetID(), negativeID}
 	before := slices.Clone(input)
 	got, err := provider.GetByIDs(reader, input...)
@@ -143,8 +143,8 @@ func TestGetByIDsMixedCachesAndNegativeHits(t *testing.T) {
 	// A new cache-disabled context proves the SQL fill and the new negative entry.
 	probe := ctx.Clone()
 	probe.DisableContextCache()
-	probeLog := &fluxaorm.MockLogHandler{}
-	probe.RegisterQueryLogger(probeLog, fluxaorm.QueryLoggerOptions{MySQL: true})
+	probeLog := &orm.MockLogHandler{}
+	probe.RegisterQueryLogger(probeLog, orm.QueryLoggerOptions{MySQL: true})
 	loaded, err := provider.GetByIDs(probe, input...)
 	require.NoError(t, err)
 	require.Len(t, loaded, 3)
@@ -152,7 +152,7 @@ func TestGetByIDsMixedCachesAndNegativeHits(t *testing.T) {
 }
 
 func TestGetByIDsTransactionBypassesRedis(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	provider := entities.GenerateEntityWithTimestampsRedisProvider
 	row := provider.New(ctx).SetName("cached")
 	require.NoError(t, ctx.Save(row))
@@ -162,10 +162,10 @@ func TestGetByIDsTransactionBypassesRedis(t *testing.T) {
 	require.NoError(t, err)
 	reader := ctx.Clone()
 	reader.DisableContextCache()
-	redisLog := &fluxaorm.MockLogHandler{}
-	reader.RegisterQueryLogger(redisLog, fluxaorm.QueryLoggerOptions{Redis: true})
-	require.NoError(t, reader.Transaction(func(tx fluxaorm.Context) error {
-		_, err := tx.DB(fluxaorm.DefaultPoolCode).Exec(tx,
+	redisLog := &orm.MockLogHandler{}
+	reader.RegisterQueryLogger(redisLog, orm.QueryLoggerOptions{Redis: true})
+	require.NoError(t, reader.Transaction(func(tx orm.Context) error {
+		_, err := tx.DB(orm.DefaultPoolCode).Exec(tx,
 			"UPDATE `generateEntityWithTimestampsRedis` SET `Name` = ? WHERE `ID` = ?", "transaction", row.GetID())
 		if err != nil {
 			return err
@@ -180,11 +180,11 @@ func TestGetByIDsTransactionBypassesRedis(t *testing.T) {
 }
 
 func TestGetByIDsPropagatesReadErrors(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestamps{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestamps{})
 	expected := errors.New("get-by-ids query failed")
-	db := ctx.Engine().DB(fluxaorm.DefaultPoolCode)
+	db := ctx.Engine().DB(orm.DefaultPoolCode)
 	original := db.GetDBClient()
-	db.SetMockDBClient(&fluxaorm.MockDBClient{OriginDB: original,
+	db.SetMockDBClient(&orm.MockDBClient{OriginDB: original,
 		QueryMock: func(string, ...any) (*sql.Rows, error) { return nil, expected },
 	})
 	defer db.SetMockDBClient(original)
@@ -193,7 +193,7 @@ func TestGetByIDsPropagatesReadErrors(t *testing.T) {
 	require.Nil(t, rows)
 	// A query can succeed while Scan fails; the shared destination slice must
 	// still propagate that failure instead of returning a partially filled row.
-	db.SetMockDBClient(&fluxaorm.MockDBClient{OriginDB: original,
+	db.SetMockDBClient(&orm.MockDBClient{OriginDB: original,
 		QueryMock: func(string, ...any) (*sql.Rows, error) { return original.Query("SELECT 123") },
 	})
 	rows, err = entities.GenerateEntityWithTimestampsProvider.GetByIDs(ctx, 123)
@@ -202,7 +202,7 @@ func TestGetByIDsPropagatesReadErrors(t *testing.T) {
 }
 
 func TestGetByIDsPropagatesRedisErrors(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityWithTimestampsRedis{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityWithTimestampsRedis{})
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	rows, err := entities.GenerateEntityWithTimestampsRedisProvider.GetByIDs(ctx.CloneWithContext(canceled), 123)

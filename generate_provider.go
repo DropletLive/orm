@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -71,7 +71,7 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 		g.addLine(fmt.Sprintf("func (p %s) RedisCode() string { return p.redisCode }", names.providerNamePrivate))
 		g.addLine(fmt.Sprintf("func (p %s) RedisCachePrefix() string { return p.redisCachePrefix }", names.providerNamePrivate))
 		g.addLine("")
-		g.addLine(fmt.Sprintf("func (p %s) ClearRedisCache(ctx fluxaorm.Context) (int, error) {", names.providerNamePrivate))
+		g.addLine(fmt.Sprintf("func (p %s) ClearRedisCache(ctx orm.Context) (int, error) {", names.providerNamePrivate))
 		g.addLine("\tscript := `")
 		g.addLine("local cursor = '0'")
 		g.addLine("local deleted = 0")
@@ -124,24 +124,24 @@ func (g *codeGenerator) generateProviderAndSQLRow(schema *entitySchema, names *e
 	}
 
 	// OnAfterInsert
-	g.addLine(fmt.Sprintf("func (p %s) OnAfterInsert(engine fluxaorm.Engine, handler func(ctx fluxaorm.Context, entity *%s) error) {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterAfterInsertHandler(engine, p.cacheIndex, func(ctx fluxaorm.Context, e fluxaorm.Entity) error {"))
+	g.addLine(fmt.Sprintf("func (p %s) OnAfterInsert(engine orm.Engine, handler func(ctx orm.Context, entity *%s) error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("\torm.RegisterAfterInsertHandler(engine, p.cacheIndex, func(ctx orm.Context, e orm.Entity) error {"))
 	g.addLine(fmt.Sprintf("\t\treturn handler(ctx, e.(*%s))", names.entityName))
 	g.addLine("\t})")
 	g.addLine("}")
 	g.addLine("")
 
 	// OnAfterUpdate
-	g.addLine(fmt.Sprintf("func (p %s) OnAfterUpdate(engine fluxaorm.Engine, handler func(ctx fluxaorm.Context, entity *%s, changes map[string]any) error) {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterAfterUpdateHandler(engine, p.cacheIndex, func(ctx fluxaorm.Context, e fluxaorm.Entity, changes map[string]any) error {"))
+	g.addLine(fmt.Sprintf("func (p %s) OnAfterUpdate(engine orm.Engine, handler func(ctx orm.Context, entity *%s, changes map[string]any) error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("\torm.RegisterAfterUpdateHandler(engine, p.cacheIndex, func(ctx orm.Context, e orm.Entity, changes map[string]any) error {"))
 	g.addLine(fmt.Sprintf("\t\treturn handler(ctx, e.(*%s), changes)", names.entityName))
 	g.addLine("\t})")
 	g.addLine("}")
 	g.addLine("")
 
 	// OnAfterDelete
-	g.addLine(fmt.Sprintf("func (p %s) OnAfterDelete(engine fluxaorm.Engine, handler func(ctx fluxaorm.Context, entity *%s) error) {", names.providerNamePrivate, names.entityName))
-	g.addLine(fmt.Sprintf("\tfluxaorm.RegisterAfterDeleteHandler(engine, p.cacheIndex, func(ctx fluxaorm.Context, e fluxaorm.Entity) error {"))
+	g.addLine(fmt.Sprintf("func (p %s) OnAfterDelete(engine orm.Engine, handler func(ctx orm.Context, entity *%s) error) {", names.providerNamePrivate, names.entityName))
+	g.addLine(fmt.Sprintf("\torm.RegisterAfterDeleteHandler(engine, p.cacheIndex, func(ctx orm.Context, e orm.Entity) error {"))
 	g.addLine(fmt.Sprintf("\t\treturn handler(ctx, e.(*%s))", names.entityName))
 	g.addLine("\t})")
 	g.addLine("}")

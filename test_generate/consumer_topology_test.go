@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	fluxaorm "github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,15 +16,15 @@ import (
 // for one that covered filterSubjects[0], which is guesswork the moment a
 // consumer filters more than one subject.
 func TestConsumerCarriesItsStreamExplicitly(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
+	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		fluxaorm.CDCOutboxEntity{}, fluxaorm.JobRunEntity{})
+		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	require.NoError(t, err)
 
-	cons, err := js.Consumer(ctx.Context(), fluxaorm.EntityStreamName, "test-indexer")
+	cons, err := js.Consumer(ctx.Context(), orm.EntityStreamName, "test-indexer")
 	require.NoError(t, err, "the durable must be created on the stream its builder names")
 
 	info, err := cons.Info(ctx.Context())
@@ -43,14 +43,14 @@ func TestConsumerCarriesItsStreamExplicitly(t *testing.T) {
 // the stream: its subjects are wildcards, so only the consumer's filter list
 // changes.
 func TestEntityStreamCarriesBothWildcards(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
+	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		fluxaorm.CDCOutboxEntity{}, fluxaorm.JobRunEntity{})
+		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	require.NoError(t, err)
-	stream, err := js.Stream(ctx.Context(), fluxaorm.EntityStreamName)
+	stream, err := js.Stream(ctx.Context(), orm.EntityStreamName)
 	require.NoError(t, err)
 	info, err := stream.Info(ctx.Context())
 	require.NoError(t, err)
@@ -64,8 +64,8 @@ func TestEntityStreamCarriesBothWildcards(t *testing.T) {
 // recreated it would lose its position, so anything unacked at that moment
 // would either vanish or be redelivered from the start of the stream.
 func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
-	ctx := fluxaorm.PrepareTablesWithConsumers(t, fluxaorm.NewRegistry(),
-		[]fluxaorm.ConsumerDef{{Name: "test-indexer", Entities: []any{generateEntityDirty{}}}},
+	ctx := orm.PrepareTablesWithConsumers(t, orm.NewRegistry(),
+		[]orm.ConsumerDef{{Name: "test-indexer", Entities: []any{generateEntityDirty{}}}},
 		generateEntityDirty{})
 	defer ctx.Engine().Nats("nats").Close()
 
@@ -75,7 +75,7 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 	require.NoError(t, ctx.Save(e))
 
 	require.Eventually(t, func() bool {
-		pending, err := fluxaorm.ConsumerPending(ctx, "test-indexer")
+		pending, err := orm.ConsumerPending(ctx, "test-indexer")
 
 		return err == nil && pending == 1
 	}, 30*time.Second, 200*time.Millisecond, "the write never reached the consumer")
@@ -84,7 +84,7 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 	// hand rather than through the test helper because that helper purges the
 	// stream, which would throw away the very message this test is watching.
 	widened := reconcileConsumers(t,
-		[]fluxaorm.ConsumerDef{{
+		[]orm.ConsumerDef{{
 			Name:     "test-indexer",
 			Entities: []any{generateEntityDirty{}, generateEntityDirtyB{}},
 		}},
@@ -93,7 +93,7 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 
 	js, err := widened.Engine().Nats("nats").GetJetStream()
 	require.NoError(t, err)
-	cons, err := js.Consumer(widened.Context(), fluxaorm.EntityStreamName, "test-indexer")
+	cons, err := js.Consumer(widened.Context(), orm.EntityStreamName, "test-indexer")
 	require.NoError(t, err)
 	info, err := cons.Info(widened.Context())
 	require.NoError(t, err)
@@ -106,14 +106,14 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 
 // reconcileConsumers stands up a second engine on the same NATS and applies its
 // topology, without touching MySQL or purging the stream.
-func reconcileConsumers(t *testing.T, consumers []fluxaorm.ConsumerDef, entities ...any) fluxaorm.Context {
+func reconcileConsumers(t *testing.T, consumers []orm.ConsumerDef, entities ...any) orm.Context {
 	t.Helper()
 
-	registry := fluxaorm.NewRegistry()
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &fluxaorm.MySQLOptions{})
+	registry := orm.NewRegistry()
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &orm.MySQLOptions{})
 	registry.RegisterRedis("localhost:6395", 0, "default", nil)
 	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
-	registry.RegisterEntityStream(fluxaorm.EntityStreamOptions{NatsPool: "nats"})
+	registry.RegisterEntityStream(orm.EntityStreamOptions{NatsPool: "nats"})
 	registry.RegisterEntity(entities...)
 	for _, def := range consumers {
 		def.NatsPool = "nats"
@@ -124,7 +124,7 @@ func reconcileConsumers(t *testing.T, consumers []fluxaorm.ConsumerDef, entities
 	require.NoError(t, err)
 
 	ctx := engine.NewContext(context.Background())
-	alters, err := fluxaorm.GetNatsAlters(ctx)
+	alters, err := orm.GetNatsAlters(ctx)
 	require.NoError(t, err)
 	for _, alter := range alters {
 		require.NoError(t, alter.Exec(ctx))
@@ -133,10 +133,10 @@ func reconcileConsumers(t *testing.T, consumers []fluxaorm.ConsumerDef, entities
 	return ctx
 }
 
-func alterDescriptions(t *testing.T, ctx fluxaorm.Context) []string {
+func alterDescriptions(t *testing.T, ctx orm.Context) []string {
 	t.Helper()
 
-	alters, err := fluxaorm.GetNatsAlters(ctx)
+	alters, err := orm.GetNatsAlters(ctx)
 	require.NoError(t, err)
 
 	out := make([]string, 0, len(alters))
@@ -164,7 +164,7 @@ func TestStreamMaxBytesIsApplied(t *testing.T) {
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	require.NoError(t, err)
 
-	for _, name := range []string{fluxaorm.EntityStreamName, fluxaorm.TaskStreamName} {
+	for _, name := range []string{orm.EntityStreamName, orm.TaskStreamName} {
 		stream, err := js.Stream(ctx.Context(), name)
 		require.NoError(t, err)
 		info, err := stream.Info(ctx.Context())
@@ -177,7 +177,7 @@ func TestStreamMaxBytesIsApplied(t *testing.T) {
 	widened := reconcileStreams(t, bound*2)
 	defer widened.Engine().Nats("nats").Close()
 
-	stream, err := js.Stream(widened.Context(), fluxaorm.EntityStreamName)
+	stream, err := js.Stream(widened.Context(), orm.EntityStreamName)
 	require.NoError(t, err)
 	info, err := stream.Info(widened.Context())
 	require.NoError(t, err)
@@ -186,15 +186,15 @@ func TestStreamMaxBytesIsApplied(t *testing.T) {
 
 // reconcileStreams applies the fixture topology carrying an explicit MaxBytes on
 // both streams, without touching MySQL or purging them.
-func reconcileStreams(t *testing.T, maxBytes int64) fluxaorm.Context {
+func reconcileStreams(t *testing.T, maxBytes int64) orm.Context {
 	t.Helper()
 
 	registry := FixtureRegistry()
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &fluxaorm.MySQLOptions{})
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &orm.MySQLOptions{})
 	registry.RegisterRedis("localhost:6395", 0, "default", nil)
 	registry.RegisterNats([]string{"nats://localhost:9944"}, "nats", nil)
-	registry.RegisterEntityStream(fluxaorm.EntityStreamOptions{NatsPool: "nats", MaxBytes: maxBytes})
-	registry.RegisterTaskStream(fluxaorm.TaskStreamOptions{NatsPool: "nats", MaxBytes: maxBytes})
+	registry.RegisterEntityStream(orm.EntityStreamOptions{NatsPool: "nats", MaxBytes: maxBytes})
+	registry.RegisterTaskStream(orm.TaskStreamOptions{NatsPool: "nats", MaxBytes: maxBytes})
 	registry.RegisterEntity(FixtureEntities()...)
 	for _, def := range FixtureConsumers() {
 		def.NatsPool = "nats"
@@ -205,7 +205,7 @@ func reconcileStreams(t *testing.T, maxBytes int64) fluxaorm.Context {
 	require.NoError(t, err)
 
 	ctx := engine.NewContext(context.Background())
-	alters, err := fluxaorm.GetNatsAlters(ctx)
+	alters, err := orm.GetNatsAlters(ctx)
 	require.NoError(t, err)
 	for _, alter := range alters {
 		require.NoError(t, alter.Exec(ctx))

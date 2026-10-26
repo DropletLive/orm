@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import "fmt"
 
@@ -629,7 +629,7 @@ func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, field
 	g.addLine("\t\t\t\tvNullable := v.(sql.NullString)")
 	g.addLine("\t\t\t\tif vNullable.Valid {")
 	g.addLine(fmt.Sprintf("\t\t\t\t\tvar result %s", goTypeName))
-	g.addLine("\t\t\t\t\t_ = fluxaorm.JsonUnmarshalFromString(vNullable.String, &result)")
+	g.addLine("\t\t\t\t\t_ = orm.JsonUnmarshalFromString(vNullable.String, &result)")
 	g.addLine("\t\t\t\t\treturn &result")
 	g.addLine("\t\t\t\t}")
 	g.addLine("\t\t\t\treturn nil")
@@ -641,14 +641,14 @@ func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, field
 		g.addLine("\t\t\t\treturn nil")
 		g.addLine("\t\t\t}")
 		g.addLine(fmt.Sprintf("\t\t\tvar result %s", goTypeName))
-		g.addLine(fmt.Sprintf("\t\t\t_ = fluxaorm.JsonUnmarshalFromString(e.originRedisValues[%d], &result)", g.filedIndex))
+		g.addLine(fmt.Sprintf("\t\t\t_ = orm.JsonUnmarshalFromString(e.originRedisValues[%d], &result)", g.filedIndex))
 		g.addLine("\t\t\treturn &result")
 		g.addLine("\t\t}")
 	}
 	g.addLine("\t}")
 	g.addLine(fmt.Sprintf("\tif e.originDatabaseValues.F%d.Valid {", g.filedIndex))
 	g.addLine(fmt.Sprintf("\t\tvar result %s", goTypeName))
-	g.addLine(fmt.Sprintf("\t\t_ = fluxaorm.JsonUnmarshalFromString(e.originDatabaseValues.F%d.String, &result)", g.filedIndex))
+	g.addLine(fmt.Sprintf("\t\t_ = orm.JsonUnmarshalFromString(e.originDatabaseValues.F%d.String, &result)", g.filedIndex))
 	g.addLine("\t\treturn &result")
 	g.addLine("\t}")
 	g.addLine("\treturn nil")
@@ -658,7 +658,7 @@ func (g *codeGenerator) createGetterSetterJsonStruct(schema *entitySchema, field
 	g.addLine(fmt.Sprintf("func (e *%s) Set%s(value *%s) *%s {", entityName, fieldName, goTypeName, entityName))
 	g.addLine("\tbindValue := sql.NullString{}")
 	g.addLine("\tif value != nil {")
-	g.addLine("\t\tjsonStr, _ := fluxaorm.JsonMarshalToString(*value)")
+	g.addLine("\t\tjsonStr, _ := orm.JsonMarshalToString(*value)")
 	g.addLine("\t\tbindValue.Valid = true")
 	g.addLine("\t\tbindValue.String = jsonStr")
 	g.addLine("\t}")

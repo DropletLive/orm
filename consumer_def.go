@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -306,7 +306,7 @@ func checkEveryQueueIsDrained(reg *engineRegistryImplementation, drained map[Que
 	sort.Strings(orphans)
 
 	return fmt.Errorf(
-		"queue %s has no consumer draining it, so its tasks would queue forever; declare a fluxaorm.ConsumerDef with that queue",
+		"queue %s has no consumer draining it, so its tasks would queue forever; declare a orm.ConsumerDef with that queue",
 		orphans[0])
 }
 

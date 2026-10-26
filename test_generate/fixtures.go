@@ -3,10 +3,10 @@ package test_generate
 import (
 	"time"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_fixtures/jobtasks"
-	mediatasks "github.com/latolukasz/fluxaorm/v2/test_fixtures/media/jobtasks"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/models"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_fixtures/jobtasks"
+	mediatasks "github.com/DropletLive/orm/test_fixtures/media/jobtasks"
+	"github.com/DropletLive/orm/test_generate/models"
 )
 
 // The fixtures live outside _test.go so cmd/genboot can regenerate entities/
@@ -39,10 +39,10 @@ type generateEntity struct {
 	Time              time.Time  `orm:"time"`
 	DateNullable      *time.Time
 	Date              time.Time
-	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
-	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
-	Tags              fluxaorm.References[generateReferenceEntity] `orm:"required"`
-	TagsOptional      fluxaorm.References[generateReferenceEntity]
+	ReferenceRequired orm.Reference[generateReferenceEntity] `orm:"required"`
+	ReferenceOptional orm.Reference[generateReferenceEntity]
+	Tags              orm.References[generateReferenceEntity] `orm:"required"`
+	TagsOptional      orm.References[generateReferenceEntity]
 	generateSubStruct
 	TestSub     generateSubStruct
 	JsonAddress *models.GenerateJsonAddress
@@ -69,10 +69,10 @@ type generateEntityNoRedis struct {
 	Time              time.Time  `orm:"time"`
 	DateNullable      *time.Time
 	Date              time.Time
-	ReferenceRequired fluxaorm.Reference[generateReferenceEntity] `orm:"required"`
-	ReferenceOptional fluxaorm.Reference[generateReferenceEntity]
-	Tags              fluxaorm.References[generateReferenceEntity] `orm:"required"`
-	TagsOptional      fluxaorm.References[generateReferenceEntity]
+	ReferenceRequired orm.Reference[generateReferenceEntity] `orm:"required"`
+	ReferenceOptional orm.Reference[generateReferenceEntity]
+	Tags              orm.References[generateReferenceEntity] `orm:"required"`
+	TagsOptional      orm.References[generateReferenceEntity]
 	generateSubStruct
 	TestSub     generateSubStruct
 	JsonAddress *models.GenerateJsonAddress
@@ -86,10 +86,10 @@ type generateReferenceEntity struct {
 
 type generateEntityWithSearch struct {
 	ID    uint64
-	Age   uint32                                      `orm:"searchable;sortable"`
-	Name  string                                      `orm:"required;searchable"`
-	Score float64                                     `orm:"searchable"`
-	Ref   fluxaorm.Reference[generateReferenceEntity] `orm:"searchable"`
+	Age   uint32                                 `orm:"searchable;sortable"`
+	Name  string                                 `orm:"required;searchable"`
+	Score float64                                `orm:"searchable"`
+	Ref   orm.Reference[generateReferenceEntity] `orm:"searchable"`
 }
 
 type generateEntityWithTimestamps struct {
@@ -220,8 +220,8 @@ func (e generateEntityCachedUniqueFakeDelete) CachedUniqueIndexes() [][]string {
 // test-indexer takes three entities so the multi-subject filter path is
 // exercised, and generateEntityDirty is on both consumers so "one write, one
 // message however many consumers" has something to prove.
-func FixtureConsumers() []fluxaorm.ConsumerDef {
-	return append([]fluxaorm.ConsumerDef{
+func FixtureConsumers() []orm.ConsumerDef {
+	return append([]orm.ConsumerDef{
 		{
 			Name: "test-indexer",
 			Entities: []any{
@@ -243,16 +243,16 @@ func FixtureEntities() []any {
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
 		generateEntityCachedAll{}, generateEntityCachedAllFakeDelete{},
 		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{},
-		generateEntityOutbox{}, generateEntityStoreOnly{}, fluxaorm.CDCOutboxEntity{},
-		fluxaorm.JobRunEntity{},
+		generateEntityOutbox{}, generateEntityStoreOnly{}, orm.CDCOutboxEntity{},
+		orm.JobRunEntity{},
 	}
 }
 
 // FixtureRegistry is a registry with the fixture tasks already registered.
 // FixtureConsumers declares consumers for their queues, and a queue with no
 // tasks is a startup error, so the two always travel together.
-func FixtureRegistry() fluxaorm.Registry {
-	registry := fluxaorm.NewRegistry()
+func FixtureRegistry() orm.Registry {
+	registry := orm.NewRegistry()
 	for _, task := range FixtureTasks() {
 		registry.RegisterTask(task.Task, task.Options)
 	}
@@ -272,22 +272,22 @@ func FixtureTasks() []FixtureTask {
 		{Task: jobtasks.SendWelcomeEmail{}},
 		{Task: jobtasks.SendReceipt{}},
 		{Task: jobtasks.SendPasswordReset{}},
-		{Task: mediatasks.TranscodeClip{}, Options: fluxaorm.TaskOptions{MaxAttempts: 3}},
+		{Task: mediatasks.TranscodeClip{}, Options: orm.TaskOptions{MaxAttempts: 3}},
 	}
 }
 
 type FixtureTask struct {
 	Task    any
-	Options fluxaorm.TaskOptions
+	Options orm.TaskOptions
 }
 
 // FixtureTaskConsumers drain the fixture queues. `default` is declared because
 // SendPasswordReset names no queue and falls through to it - a queue nothing
 // drains is a startup error.
-func FixtureTaskConsumers() []fluxaorm.ConsumerDef {
-	return []fluxaorm.ConsumerDef{
-		{Name: "emails-worker", Queues: []fluxaorm.Queue{"emails"}},
-		{Name: "media-worker", Queues: []fluxaorm.Queue{"media"}},
-		{Name: "default-worker", Queues: []fluxaorm.Queue{fluxaorm.DefaultQueue}},
+func FixtureTaskConsumers() []orm.ConsumerDef {
+	return []orm.ConsumerDef{
+		{Name: "emails-worker", Queues: []orm.Queue{"emails"}},
+		{Name: "media-worker", Queues: []orm.Queue{"media"}},
+		{Name: "default-worker", Queues: []orm.Queue{orm.DefaultQueue}},
 	}
 }

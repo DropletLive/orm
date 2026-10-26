@@ -4,22 +4,22 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/stretchr/testify/assert"
 )
 
 // cachedUniqueKey rebuilds the key a cached unique index lookup would use, so a test can point it
 // at a row of its choosing — which is what an attacker does by finding a hash collision.
 func cachedUniqueKey(prefix, indexName string, columns []string, values ...any) string {
-	return prefix + fluxaorm.UniqueIndexKeySegment(indexName, columns) + fluxaorm.UniqueIndexKeyHash(values...)
+	return prefix + orm.UniqueIndexKeySegment(indexName, columns) + orm.UniqueIndexKeyHash(values...)
 }
 
 // The key is a 32-bit hash of the queried value, so two values can share one entry. Returning the
 // cached row without checking it is how a forget-password flow mails one user's reset token to
 // another. A hit that does not match must be treated as a miss.
 func TestCachedUniqueIndexRejectsAColludingKey(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedUnique{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedUnique{})
 
 	victim := entities.GenerateEntityCachedUniqueProvider.New(ctx)
 	victim.SetName("Victim")
@@ -35,12 +35,12 @@ func TestCachedUniqueIndexRejectsAColludingKey(t *testing.T) {
 
 	// Stand in for a collision: the attacker's key resolves to the victim's ID.
 	key := cachedUniqueKey(entities.GenerateEntityCachedUniqueProvider.RedisCachePrefix(), "Email", []string{"Email"}, "attacker@example.com")
-	assert.NoError(t, ctx.Engine().Redis(fluxaorm.DefaultPoolCode).Set(ctx, key, strconv.FormatUint(victim.GetID(), 10), fluxaorm.EntityCacheTTL))
+	assert.NoError(t, ctx.Engine().Redis(orm.DefaultPoolCode).Set(ctx, key, strconv.FormatUint(victim.GetID(), 10), orm.EntityCacheTTL))
 
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	found, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
+	found, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Email.Is("attacker@example.com"),
 	))
 	assert.NoError(t, err)
@@ -51,7 +51,7 @@ func TestCachedUniqueIndexRejectsAColludingKey(t *testing.T) {
 // Verifying only the first column of a composite index would leave the class open — about twenty
 // of the live cached indexes are composite.
 func TestCachedUniqueIndexVerifiesEveryColumnOfACompositeIndex(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedUnique{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedUnique{})
 
 	alice := entities.GenerateEntityCachedUniqueProvider.New(ctx)
 	alice.SetName("Alice")
@@ -67,12 +67,12 @@ func TestCachedUniqueIndexVerifiesEveryColumnOfACompositeIndex(t *testing.T) {
 	assert.NoError(t, ctx.Save(sameName))
 
 	key := cachedUniqueKey(entities.GenerateEntityCachedUniqueProvider.RedisCachePrefix(), "Name_Age", []string{"Name", "Age"}, "Alice", 40)
-	assert.NoError(t, ctx.Engine().Redis(fluxaorm.DefaultPoolCode).Set(ctx, key, strconv.FormatUint(alice.GetID(), 10), fluxaorm.EntityCacheTTL))
+	assert.NoError(t, ctx.Engine().Redis(orm.DefaultPoolCode).Set(ctx, key, strconv.FormatUint(alice.GetID(), 10), orm.EntityCacheTTL))
 
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	found, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
+	found, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(reader, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Alice"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(40)),
 	))
@@ -84,7 +84,7 @@ func TestCachedUniqueIndexVerifiesEveryColumnOfACompositeIndex(t *testing.T) {
 // The SQL branch filters `FakeDelete` = 0 and the cache branch did not, so a stale key could
 // resurrect a soft-deleted row.
 func TestCachedUniqueIndexIgnoresAFakeDeletedHit(t *testing.T) {
-	ctx := fluxaorm.PrepareTables(t, fluxaorm.NewRegistry(), generateEntityCachedUniqueFakeDelete{})
+	ctx := orm.PrepareTables(t, orm.NewRegistry(), generateEntityCachedUniqueFakeDelete{})
 
 	e := entities.GenerateEntityCachedUniqueFakeDeleteProvider.New(ctx)
 	e.SetName("Gone")
@@ -92,13 +92,13 @@ func TestCachedUniqueIndexIgnoresAFakeDeletedHit(t *testing.T) {
 	assert.NoError(t, ctx.Delete(e))
 
 	key := cachedUniqueKey(entities.GenerateEntityCachedUniqueFakeDeleteProvider.RedisCachePrefix(), "Name", []string{"Name"}, "Gone")
-	assert.NoError(t, ctx.Engine().Redis(fluxaorm.DefaultPoolCode).Set(ctx, key, strconv.FormatUint(e.GetID(), 10), fluxaorm.EntityCacheTTL))
+	assert.NoError(t, ctx.Engine().Redis(orm.DefaultPoolCode).Set(ctx, key, strconv.FormatUint(e.GetID(), 10), orm.EntityCacheTTL))
 
 	reader := ctx.Clone()
 	reader.DisableContextCache()
 
-	_, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(reader, fluxaorm.NewQuery().Filter(
+	_, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(reader, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueFakeDeleteProvider.Fields.Name.Is("Gone"),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 }

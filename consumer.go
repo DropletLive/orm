@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"context"
@@ -19,13 +19,13 @@ var ErrPayloadUndecodable = errors.New("task payload cannot be decoded")
 
 // StreamConsumer is the low-level pull primitive. Callers loop over Consume()
 // in whatever lifecycle harness they use (cron.Job, fx lifecycle, plain
-// goroutine). fluxaorm intentionally does NOT provide a blocking Run() - the
+// goroutine). orm intentionally does NOT provide a blocking Run() - the
 // application owns the loop, the retry policy and the shutdown semantics.
 type StreamConsumer interface {
 	// Consume fetches up to `batch` messages with `timeout` deadline, dispatches
 	// each one, acks on nil error and leaves unacked on err. It returns the first
 	// transport-level error (connection lost, stream gone, durable missing).
-	// Handler errors are reported to fluxaorm's NATS log but do not return from
+	// Handler errors are reported to orm's NATS log but do not return from
 	// Consume - they only block the ack so JetStream can redeliver.
 	Consume(ctx context.Context, batch int, timeout time.Duration) error
 }
@@ -164,7 +164,7 @@ func resolveConsumerByName(engine Engine, name ConsumerName) (*resolvedConsumer,
 	}
 	resolved := reg.consumers[name]
 	if resolved == nil {
-		return nil, fmt.Errorf("consumer '%s' is not declared; add a fluxaorm.ConsumerDef for it", name)
+		return nil, fmt.Errorf("consumer '%s' is not declared; add a orm.ConsumerDef for it", name)
 	}
 
 	return resolved, nil
@@ -377,7 +377,7 @@ func enqueueReplayEvents(orm Context, consumer ConsumerName, entities []Entity) 
 // ConsumerPending reports how many messages a consumer still has to deliver.
 //
 // This is the backlog signal - "is work piling up on this consumer" - and it
-// lives here because the durable name is fluxaorm's to decide, so an
+// lives here because the durable name is orm's to decide, so an
 // application asking JetStream directly would have to hardcode the convention.
 func ConsumerPending(ctx Context, consumer ConsumerName) (uint64, error) {
 	orm, ok := ctx.(*ormImplementation)

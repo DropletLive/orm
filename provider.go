@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 // EntityProvider is the base interface implemented by all generated entity providers.
 type EntityProvider interface {

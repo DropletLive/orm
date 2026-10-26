@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/latolukasz/fluxaorm/v2"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/entities/enums"
-	"github.com/latolukasz/fluxaorm/v2/test_generate/models"
+	"github.com/DropletLive/orm"
+	"github.com/DropletLive/orm/test_generate/entities"
+	"github.com/DropletLive/orm/test_generate/entities/enums"
+	"github.com/DropletLive/orm/test_generate/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,11 +25,11 @@ import (
 func TestGenerate(t *testing.T) {
 	registry := FixtureRegistry()
 
-	ctx := fluxaorm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
+	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
 	defer ctx.Engine().Nats("nats").Close()
 	_ = os.MkdirAll("entities", 0755)
 
-	err := fluxaorm.Generate(ctx.Engine(), "entities")
+	err := orm.Generate(ctx.Engine(), "entities")
 	assert.NoError(t, err)
 
 	e := entities.GenerateEntityProvider.New(ctx)
@@ -405,38 +405,38 @@ func TestGenerate(t *testing.T) {
 	// SearchMany: generateEntityNoRedis (no FakeDelete)
 	var total int
 	var searchResults2 []*entities.GenerateEntityNoRedis
-	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery())
+	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.Len(t, searchResults2, 1)
 	assert.Equal(t, e2.GetID(), searchResults2[0].GetID())
 
-	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("Hello")))
+	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("Hello")))
 	assert.NoError(t, err)
 	assert.Len(t, searchResults2, 1)
 	assert.Equal(t, e2.GetID(), searchResults2[0].GetID())
 
-	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")))
+	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")))
 	assert.NoError(t, err)
 	assert.Nil(t, searchResults2)
 
-	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	searchResults2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Len(t, searchResults2, 1)
 	assert.Equal(t, e2.GetID(), searchResults2[0].GetID())
 
 	// SearchManyWithTotal: generateEntityNoRedis
-	searchResults2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	searchResults2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, searchResults2, 1)
 	assert.Equal(t, e2.GetID(), searchResults2[0].GetID())
 
-	searchResults2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")).Pager(fluxaorm.NewPager(1, 10)))
+	searchResults2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")).Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 0, total)
 	assert.Nil(t, searchResults2)
 
-	searchResults2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(2, 10)))
+	searchResults2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(2, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Nil(t, searchResults2)
@@ -447,155 +447,155 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, ctx.Save(ref2))
 
 	var listRefSearch []*entities.GenerateReferenceEntity
-	listRefSearch, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, fluxaorm.NewQuery())
+	listRefSearch, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.Len(t, listRefSearch, 2)
 
-	listRefSearch, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	listRefSearch, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, total)
 	assert.Len(t, listRefSearch, 2)
 
 	assert.NoError(t, ctx.Delete(ref))
 
-	listRefSearch, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, fluxaorm.NewQuery())
+	listRefSearch, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.Len(t, listRefSearch, 1)
 	assert.Equal(t, ref2.GetID(), listRefSearch[0].GetID())
 
-	listRefSearch, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("1 = 1").WithFakeDeletes()))
+	listRefSearch, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, orm.NewQuery().FilterWhere(orm.NewWhere("1 = 1").WithFakeDeletes()))
 	assert.NoError(t, err)
 	assert.Len(t, listRefSearch, 2)
 
-	listRefSearch, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	listRefSearch, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, listRefSearch, 1)
 	assert.Equal(t, ref2.GetID(), listRefSearch[0].GetID())
 
-	listRefSearch, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("1 = 1").WithFakeDeletes()).Pager(fluxaorm.NewPager(1, 10)))
+	listRefSearch, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, orm.NewQuery().FilterWhere(orm.NewWhere("1 = 1").WithFakeDeletes()).Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, total)
 	assert.Len(t, listRefSearch, 2)
 
 	// SearchMany (entity return): generateEntityNoRedis (no FakeDelete)
 	var list2 []*entities.GenerateEntityNoRedis
-	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery())
+	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.Len(t, list2, 1)
 	assert.Equal(t, e2.GetID(), list2[0].GetID())
 	assert.Equal(t, "Hello", list2[0].GetName())
 
-	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("Hello")))
+	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("Hello")))
 	assert.NoError(t, err)
 	assert.Len(t, list2, 1)
 	assert.Equal(t, e2.GetID(), list2[0].GetID())
 
-	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")))
+	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")))
 	assert.NoError(t, err)
 	assert.Nil(t, list2)
 
-	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Len(t, list2, 1)
 
-	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(2, 10)))
+	list2, err = entities.GenerateEntityNoRedisProvider.SearchMany(ctx, orm.NewQuery().Pager(orm.NewPager(2, 10)))
 	assert.NoError(t, err)
 	assert.Nil(t, list2)
 
 	// SearchManyWithTotal (entity return): generateEntityNoRedis (no FakeDelete)
-	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, list2, 1)
 	assert.Equal(t, e2.GetID(), list2[0].GetID())
 
-	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")).Pager(fluxaorm.NewPager(1, 10)))
+	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")).Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 0, total)
 	assert.Nil(t, list2)
 
-	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(2, 10)))
+	list2, total, err = entities.GenerateEntityNoRedisProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(2, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Nil(t, list2)
 
 	// SearchMany: generateReferenceEntity (FakeDelete) — ref soft-deleted, ref2 active
 	var listRef []*entities.GenerateReferenceEntity
-	listRef, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, fluxaorm.NewQuery())
+	listRef, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.Len(t, listRef, 1)
 	assert.Equal(t, ref2.GetID(), listRef[0].GetID())
 
-	listRef, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("1 = 1").WithFakeDeletes()))
+	listRef, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, orm.NewQuery().FilterWhere(orm.NewWhere("1 = 1").WithFakeDeletes()))
 	assert.NoError(t, err)
 	assert.Len(t, listRef, 2)
 
-	listRef, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("`Name` = ?", "Test Reference").WithFakeDeletes()))
+	listRef, err = entities.GenerateReferenceEntityProvider.SearchMany(ctx, orm.NewQuery().FilterWhere(orm.NewWhere("`Name` = ?", "Test Reference").WithFakeDeletes()))
 	assert.NoError(t, err)
 	assert.Len(t, listRef, 1)
 	assert.Equal(t, ref.GetID(), listRef[0].GetID())
 
 	// SearchManyWithTotal: generateReferenceEntity (FakeDelete)
-	listRef, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().Pager(fluxaorm.NewPager(1, 10)))
+	listRef, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, orm.NewQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, listRef, 1)
 	assert.Equal(t, ref2.GetID(), listRef[0].GetID())
 
-	listRef, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("1 = 1").WithFakeDeletes()).Pager(fluxaorm.NewPager(1, 10)))
+	listRef, total, err = entities.GenerateReferenceEntityProvider.SearchManyWithTotal(ctx, orm.NewQuery().FilterWhere(orm.NewWhere("1 = 1").WithFakeDeletes()).Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, total)
 	assert.Len(t, listRef, 2)
 
 	// SearchOne: generateEntityNoRedis (no FakeDelete)
 	var one *entities.GenerateEntityNoRedis
-	one, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("Hello")))
+	one, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("Hello")))
 	assert.NoError(t, err)
 	assert.Equal(t, e2.GetID(), one.GetID())
 
-	one, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	one, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, orm.NewQuery().Filter(entities.GenerateEntityNoRedisProvider.Fields.Name.Is("NoMatch")))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, one)
 
-	one, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, fluxaorm.NewQuery())
+	one, err = entities.GenerateEntityNoRedisProvider.SearchOne(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.NotNil(t, one)
 
 	// SearchOne: generateReferenceEntity (FakeDelete) — ref is soft-deleted, ref2 is active
 	var oneRef *entities.GenerateReferenceEntity
-	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(entities.GenerateReferenceEntityProvider.Fields.Name.Is("Test Reference")))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError)) // soft-deleted, filtered out
+	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, orm.NewQuery().Filter(entities.GenerateReferenceEntityProvider.Fields.Name.Is("Test Reference")))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError)) // soft-deleted, filtered out
 	assert.Nil(t, oneRef)
 
-	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewQuery().FilterWhere(fluxaorm.NewWhere("`Name` = ?", "Test Reference").WithFakeDeletes()))
+	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, orm.NewQuery().FilterWhere(orm.NewWhere("`Name` = ?", "Test Reference").WithFakeDeletes()))
 	assert.NoError(t, err)
 	assert.Equal(t, ref.GetID(), oneRef.GetID())
 
-	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(entities.GenerateReferenceEntityProvider.Fields.Name.Is("Test Reference 2")))
+	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, orm.NewQuery().Filter(entities.GenerateReferenceEntityProvider.Fields.Name.Is("Test Reference 2")))
 	assert.NoError(t, err)
 	assert.Equal(t, ref2.GetID(), oneRef.GetID())
 
-	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, fluxaorm.NewQuery())
+	oneRef, err = entities.GenerateReferenceEntityProvider.SearchOne(ctx, orm.NewQuery())
 	assert.NoError(t, err)
 	assert.Equal(t, ref2.GetID(), oneRef.GetID())
 
 	assert.NoError(t, ctx.Delete(e, e2))
 	e, err = entities.GenerateEntityProvider.GetByID(ctx, e.GetID())
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, e)
 	e2, err = entities.GenerateEntityNoRedisProvider.GetByID(ctx, e2.GetID())
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, e2)
 
 	// Redis Search tests
-	alters, err := fluxaorm.GetRedisSearchAlters(ctx)
+	alters, err := orm.GetRedisSearchAlters(ctx)
 	assert.NoError(t, err)
 	assert.Len(t, alters, 1)
 	assert.NoError(t, alters[0].Exec(ctx))
 
 	// Second call: index already exists, no alters returned
-	alters, err = fluxaorm.GetRedisSearchAlters(ctx)
+	alters, err = orm.GetRedisSearchAlters(ctx)
 	assert.NoError(t, err)
 	assert.Len(t, alters, 0)
 
@@ -622,25 +622,25 @@ func TestGenerate(t *testing.T) {
 
 	// SearchManyInRedis: all entities
 	var searchEntities []*entities.GenerateEntityWithSearch
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery())
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 3)
 
 	// SearchManyInRedis: reference matches the exact ID only
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.Eq(searchRef1.GetID()),
 	))
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 1)
 	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.In(searchRef1.GetID(), searchRef2.GetID()),
 	))
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 2)
 
 	// SearchManyInRedis: numeric range
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Gte(10),
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Lte(20),
 	))
@@ -649,23 +649,23 @@ func TestGenerate(t *testing.T) {
 
 	// SearchManyInRedisWithTotal
 	var searchTotal int
-	searchEntities, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Gte(20),
-	).Pager(fluxaorm.NewPager(1, 10)))
+	).Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, searchTotal)
 	assert.Len(t, searchEntities, 2)
 
 	// SearchManyInRedisWithTotal: no match
-	searchEntities, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(999),
-	).Pager(fluxaorm.NewPager(1, 10)))
+	).Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 0, searchTotal)
 	assert.Nil(t, searchEntities)
 
 	// SearchManyInRedis: returns entities with filter
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Lte(20),
 	))
 	assert.NoError(t, err)
@@ -673,21 +673,21 @@ func TestGenerate(t *testing.T) {
 
 	// SearchOneInRedis
 	var searchOne *entities.GenerateEntityWithSearch
-	searchOne, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchOne, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(10),
 	))
 	assert.NoError(t, err)
 	assert.Equal(t, es1.GetID(), searchOne.GetID())
 
-	searchOne, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchOne, err = entities.GenerateEntityWithSearchProvider.SearchOneInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(999),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, searchOne)
 
 	// SearchManyInRedisWithTotal: all
 	var searchWithTotal []*entities.GenerateEntityWithSearch
-	searchWithTotal, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, fluxaorm.NewRedisSearchQuery().Pager(fluxaorm.NewPager(1, 10)))
+	searchWithTotal, searchTotal, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedisWithTotal(ctx, orm.NewRedisSearchQuery().Pager(orm.NewPager(1, 10)))
 	assert.NoError(t, err)
 	assert.Equal(t, 3, searchTotal)
 	assert.Len(t, searchWithTotal, 3)
@@ -696,13 +696,13 @@ func TestGenerate(t *testing.T) {
 	es1.SetAge(15)
 	assert.NoError(t, ctx.Save(es1))
 
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(10),
 	))
 	assert.NoError(t, err)
 	assert.Nil(t, searchEntities)
 
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(15),
 	))
 	assert.NoError(t, err)
@@ -712,24 +712,24 @@ func TestGenerate(t *testing.T) {
 	// Delete entity: should be removed from Redis Search
 	assert.NoError(t, ctx.Delete(es3))
 
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery())
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 2)
 
 	// ReindexRedisSearch: rebuild the entire index from MySQL; results should remain correct
 	err = entities.GenerateEntityWithSearchProvider.ReindexRedisSearch(ctx)
 	assert.NoError(t, err)
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery())
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery())
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 2)
 	// After reindex, updated age=15 for es1 should be searchable
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Age.Eq(15),
 	))
 	assert.NoError(t, err)
 	assert.Len(t, searchEntities, 1)
 	assert.Equal(t, es1.GetID(), searchEntities[0].GetID())
-	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, fluxaorm.NewRedisSearchQuery().Filter(
+	searchEntities, err = entities.GenerateEntityWithSearchProvider.SearchManyInRedis(ctx, orm.NewRedisSearchQuery().Filter(
 		entities.GenerateEntityWithSearchProvider.FieldsRedisSearch.Ref.Eq(searchRef2.GetID()),
 	))
 	assert.NoError(t, err)
@@ -814,7 +814,7 @@ func TestGenerate(t *testing.T) {
 	eIdx.SetDate(now)
 	eIdx.SetTestEnum(enums.TestEnumList.A)
 	assert.NoError(t, ctx.Save(eIdx))
-	eByIdx, err := entities.GenerateEntityProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	eByIdx, err := entities.GenerateEntityProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityProvider.Fields.Age.Eq(uint64(25)),
 		entities.GenerateEntityProvider.Fields.Balance.Eq(int64(10)),
 	))
@@ -823,11 +823,11 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, uint64(25), eByIdx.GetAge())
 	assert.Equal(t, int64(10), eByIdx.GetBalance())
 	// Not found case
-	eByIdx, err = entities.GenerateEntityProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	eByIdx, err = entities.GenerateEntityProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityProvider.Fields.Age.Eq(uint64(999)),
 		entities.GenerateEntityProvider.Fields.Balance.Eq(int64(999)),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, eByIdx)
 
 	// Test cached unique index getter (generateEntityCachedUnique)
@@ -838,29 +838,29 @@ func TestGenerate(t *testing.T) {
 	assert.NoError(t, ctx.Save(cu))
 
 	// First call: should go to MySQL, cache in Redis, then GetByID
-	cuByName, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuByName, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Alice"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(30)),
 	))
 	assert.NoError(t, err)
 	assert.Equal(t, cu.GetID(), cuByName.GetID())
 	// Second call: should hit Redis cache
-	cuByName2, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuByName2, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Alice"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(30)),
 	))
 	assert.NoError(t, err)
 	assert.Equal(t, cu.GetID(), cuByName2.GetID())
 	// Not found case
-	cuByName3, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuByName3, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Nobody"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(0)),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, cuByName3)
 
 	// Email single-column cached index
-	cuByEmail, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuByEmail, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Email.Is("alice@example.com"),
 	))
 	assert.NoError(t, err)
@@ -868,7 +868,7 @@ func TestGenerate(t *testing.T) {
 
 	// Test INSERT populates cached unique index key (already tested above via getter)
 	// Test UPDATE with changed index column: change Name and verify new lookup works
-	cuByName, err = entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuByName, err = entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Alice"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(30)),
 	))
@@ -876,14 +876,14 @@ func TestGenerate(t *testing.T) {
 	cuByName.SetName("Bob")
 	assert.NoError(t, ctx.Save(cuByName))
 	// Old key should no longer work
-	cuOld, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuOld, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Alice"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(30)),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, cuOld)
 	// New key should work
-	cuNew, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuNew, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Bob"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(30)),
 	))
@@ -892,16 +892,16 @@ func TestGenerate(t *testing.T) {
 
 	// Test DELETE removes cached unique index key
 	assert.NoError(t, ctx.Delete(cuNew))
-	cuDel, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuDel, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Name.Is("Bob"),
 		entities.GenerateEntityCachedUniqueProvider.Fields.Age.Eq(uint64(30)),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, cuDel)
-	cuDelEmail, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cuDelEmail, err := entities.GenerateEntityCachedUniqueProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueProvider.Fields.Email.Is("alice@example.com"),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, cuDelEmail)
 
 	// Test cached unique index without Redis entity cache (generateEntityCachedUniqueNoRedis)
@@ -909,7 +909,7 @@ func TestGenerate(t *testing.T) {
 	cunr.SetCode("test123")
 	cunr.SetValue(42)
 	assert.NoError(t, ctx.Save(cunr))
-	cunrByCode, err := entities.GenerateEntityCachedUniqueNoRedisProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cunrByCode, err := entities.GenerateEntityCachedUniqueNoRedisProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueNoRedisProvider.Fields.Code.Is("test123"),
 		entities.GenerateEntityCachedUniqueNoRedisProvider.Fields.Value.Eq(int64(42)),
 	))
@@ -920,7 +920,7 @@ func TestGenerate(t *testing.T) {
 	cufd := entities.GenerateEntityCachedUniqueFakeDeleteProvider.New(ctx)
 	cufd.SetName("FakeDeleteTest")
 	assert.NoError(t, ctx.Save(cufd))
-	cufdByName, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cufdByName, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueFakeDeleteProvider.Fields.Name.Is("FakeDeleteTest"),
 	))
 	assert.NoError(t, err)
@@ -928,10 +928,10 @@ func TestGenerate(t *testing.T) {
 	// Soft delete
 	assert.NoError(t, ctx.Delete(cufdByName))
 	// Cached key should be removed, MySQL query filters by FakeDelete=0
-	cufdAfterDelete, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(ctx, fluxaorm.NewQuery().Filter(
+	cufdAfterDelete, err := entities.GenerateEntityCachedUniqueFakeDeleteProvider.SearchOne(ctx, orm.NewQuery().Filter(
 		entities.GenerateEntityCachedUniqueFakeDeleteProvider.Fields.Name.Is("FakeDeleteTest"),
 	))
-	assert.ErrorAs(t, err, new(*fluxaorm.NotFoundError))
+	assert.ErrorAs(t, err, new(*orm.NotFoundError))
 	assert.Nil(t, cufdAfterDelete)
 
 	// ---- enumName-only reference tests ----
@@ -963,7 +963,7 @@ func TestGenerate(t *testing.T) {
 	assert.Equal(t, "generateReferenceEntity", entities.GenerateReferenceEntityProvider.TableName())
 
 	// RedisCacheEntityProvider: only redis cache providers
-	var redisCacheProvider fluxaorm.RedisCacheEntityProvider
+	var redisCacheProvider orm.RedisCacheEntityProvider
 
 	redisCacheProvider = &entities.GenerateEntityProvider
 	assert.Equal(t, "default", redisCacheProvider.RedisCode())
@@ -980,17 +980,17 @@ func TestGenerate(t *testing.T) {
 	assert.NotEmpty(t, redisCacheProvider.RedisCachePrefix())
 
 	// Negative: non-redis providers do NOT implement RedisCacheEntityProvider
-	var entityProvider fluxaorm.EntityProvider
+	var entityProvider orm.EntityProvider
 	entityProvider = &entities.GenerateEntityNoRedisProvider
-	_, isRedisCache := entityProvider.(fluxaorm.RedisCacheEntityProvider)
+	_, isRedisCache := entityProvider.(orm.RedisCacheEntityProvider)
 	assert.False(t, isRedisCache)
 
 	entityProvider = &entities.GenerateEntityWithSearchProvider
-	_, isRedisCache = entityProvider.(fluxaorm.RedisCacheEntityProvider)
+	_, isRedisCache = entityProvider.(orm.RedisCacheEntityProvider)
 	assert.False(t, isRedisCache)
 
 	// RedisSearchEntityProvider: only search providers
-	var redisSearchProvider fluxaorm.RedisSearchEntityProvider
+	var redisSearchProvider orm.RedisSearchEntityProvider
 	redisSearchProvider = &entities.GenerateEntityWithSearchProvider
 	assert.Equal(t, "default", redisSearchProvider.RedisSearchCode())
 	assert.NotEmpty(t, redisSearchProvider.RedisSearchIndexName())
@@ -998,11 +998,11 @@ func TestGenerate(t *testing.T) {
 
 	// Negative: non-search providers do NOT implement RedisSearchEntityProvider
 	entityProvider = &entities.GenerateEntityProvider
-	_, isRedisSearch := entityProvider.(fluxaorm.RedisSearchEntityProvider)
+	_, isRedisSearch := entityProvider.(orm.RedisSearchEntityProvider)
 	assert.False(t, isRedisSearch)
 
 	entityProvider = &entities.GenerateEntityNoRedisProvider
-	_, isRedisSearch = entityProvider.(fluxaorm.RedisSearchEntityProvider)
+	_, isRedisSearch = entityProvider.(orm.RedisSearchEntityProvider)
 	assert.False(t, isRedisSearch)
 
 	// AllProviders: correct length (19 entities)
@@ -1028,7 +1028,7 @@ func TestGenerate(t *testing.T) {
 
 	// A consumer's filter list is its entities plus its own replay wildcard, so a
 	// replay can never reach a consumer that did not ask for it.
-	assert.Equal(t, []fluxaorm.Subject{
+	assert.Equal(t, []orm.Subject{
 		"fluxa.entity.generateEntityDirty",
 		"fluxa.replay.test-notifier.>",
 	}, entities.ConsumerTestNotifier.Subjects())

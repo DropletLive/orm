@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"errors"
@@ -102,7 +102,7 @@ func TestSaveRejectsEntitiesNeedingRegenerationBeforeStagingSQL(t *testing.T) {
 	entity := &obsoleteGeneratedEntity{}
 	err := orm.Save(entity)
 	require.ErrorIs(t, err, ErrEntityNeedsRegeneration)
-	require.ErrorContains(t, err, "fluxaorm.Generate")
+	require.ErrorContains(t, err, "orm.Generate")
 	require.Zero(t, entity.flushes)
 	require.Empty(t, orm.dbPipeLines)
 }

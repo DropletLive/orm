@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"fmt"
@@ -51,7 +51,7 @@ func Generate(engine Engine, outputDirectory string) error {
 		return fmt.Errorf("output path is not a directory: %s", absOutputDirectory)
 	}
 
-	f, err := os.CreateTemp(absOutputDirectory, ".fluxaorm-writecheck-*")
+	f, err := os.CreateTemp(absOutputDirectory, ".orm-writecheck-*")
 	if err != nil {
 		return fmt.Errorf("directory is not writable: %s: %w", absOutputDirectory, err)
 	}

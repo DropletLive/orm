@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ var ErrOutboxDispatchMark = errors.New("cdc outbox dispatch mark failed")
 
 // CDCOutboxEntity is the transactional outbox table. It is declared here rather
 // than by the application so the column set is a compile-time fact on both
-// sides: fluxaorm writes it with raw SQL, the application reads it through the
+// sides: orm writes it with raw SQL, the application reads it through the
 // generated provider. Register it with `registry.RegisterEntity` and it
 // generates, alters and queries like any other entity.
 //
@@ -84,7 +84,7 @@ func resolveCDCOutbox(e *engineImplementation) error {
 	schema, has := reg.entitySchemas[outboxType]
 	if !has {
 		return fmt.Errorf(
-			"entity '%s' is tagged `orm:\"outbox\"` but fluxaorm.CDCOutboxEntity is not registered; add registry.RegisterEntity(fluxaorm.CDCOutboxEntity{})",
+			"entity '%s' is tagged `orm:\"outbox\"` but orm.CDCOutboxEntity is not registered; add registry.RegisterEntity(orm.CDCOutboxEntity{})",
 			tagged[0])
 	}
 	reg.cdcOutbox = &resolvedCDCOutbox{tableName: schema.tableName, poolCode: schema.mysqlPoolCode}

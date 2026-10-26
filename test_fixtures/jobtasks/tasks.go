@@ -2,7 +2,7 @@
 // most, its queue - which is what keeps the generated package free to import it.
 package jobtasks
 
-import "github.com/latolukasz/fluxaorm/v2"
+import "github.com/DropletLive/orm"
 
 // SendWelcomeEmail declares its queue on the value receiver.
 type SendWelcomeEmail struct {
@@ -10,7 +10,7 @@ type SendWelcomeEmail struct {
 	Locale string
 }
 
-func (SendWelcomeEmail) Queue() fluxaorm.Queue { return "emails" }
+func (SendWelcomeEmail) Queue() orm.Queue { return "emails" }
 
 // SendReceipt declares its queue on the pointer receiver, so the optional-
 // interface probe has to find both forms.
@@ -18,10 +18,10 @@ type SendReceipt struct {
 	OrderID uint64
 }
 
-func (*SendReceipt) Queue() fluxaorm.Queue { return "emails" }
+func (*SendReceipt) Queue() orm.Queue { return "emails" }
 
 // SendPasswordReset declares no queue at all, so it falls through to
-// fluxaorm.DefaultQueue.
+// orm.DefaultQueue.
 type SendPasswordReset struct {
 	UserID uint64
 }

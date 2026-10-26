@@ -1,4 +1,4 @@
-package fluxaorm
+package orm
 
 // Subject is the identity of something that happened. Entity changes get one
 // subject per table; a consumer selects the subset it wants with a subject

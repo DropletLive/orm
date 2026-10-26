@@ -3,7 +3,7 @@ package test_generate
 import (
 	"testing"
 
-	fluxaorm "github.com/latolukasz/fluxaorm/v2"
+	"github.com/DropletLive/orm"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,9 +30,9 @@ type untaggedEntity struct {
 	Name string `orm:"required;length=100"`
 }
 
-func validateRegistry(entities []any, consumers ...fluxaorm.ConsumerDef) error {
-	registry := fluxaorm.NewRegistry()
-	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &fluxaorm.MySQLOptions{})
+func validateRegistry(entities []any, consumers ...orm.ConsumerDef) error {
+	registry := orm.NewRegistry()
+	registry.RegisterMySQL("root:root@tcp(localhost:3397)/test", "default", &orm.MySQLOptions{})
 	registry.RegisterRedis("localhost:6395", 0, "default", nil)
 	registry.RegisterEntity(entities...)
 	for _, def := range consumers {
@@ -67,7 +67,7 @@ func TestValidateRejectsACdcEntityNobodyConsumes(t *testing.T) {
 func TestValidateRejectsAConsumerDeclaringAnUnregisteredEntity(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		fluxaorm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, untaggedEntity{}}},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, untaggedEntity{}}},
 	)
 
 	assert.ErrorContains(t, err, "is not registered")
@@ -80,7 +80,7 @@ func TestValidateRejectsAConsumerDeclaringAnUnregisteredEntity(t *testing.T) {
 func TestValidateRejectsAConsumerDeclaringAnUntaggedEntity(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}, untaggedEntity{}},
-		fluxaorm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, untaggedEntity{}}},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, untaggedEntity{}}},
 	)
 
 	assert.ErrorContains(t, err, "not tagged")
@@ -90,8 +90,8 @@ func TestValidateRejectsAConsumerDeclaringAnUntaggedEntity(t *testing.T) {
 func TestValidateRejectsADuplicateConsumerName(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		fluxaorm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}}},
-		fluxaorm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}}},
 	)
 
 	assert.ErrorContains(t, err, "declared twice")
@@ -103,7 +103,7 @@ func TestValidateRejectsADuplicateConsumerName(t *testing.T) {
 func TestValidateRejectsAConsumerWithOverlappingFilters(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		fluxaorm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, consumedCdcEntity{}}},
 	)
 
 	assert.ErrorContains(t, err, "twice")
@@ -113,7 +113,7 @@ func TestValidateRejectsAConsumerWithOverlappingFilters(t *testing.T) {
 func TestValidateRejectsABadConsumerName(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		fluxaorm.ConsumerDef{Name: "Order_Indexer", Entities: []any{consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "Order_Indexer", Entities: []any{consumedCdcEntity{}}},
 	)
 
 	assert.ErrorContains(t, err, "must match")
@@ -122,8 +122,8 @@ func TestValidateRejectsABadConsumerName(t *testing.T) {
 func TestValidateRejectsAConsumerWithNoEntities(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		fluxaorm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}}},
-		fluxaorm.ConsumerDef{Name: "idle"},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "idle"},
 	)
 
 	assert.ErrorContains(t, err, "declares neither entities nor queues")
@@ -132,8 +132,8 @@ func TestValidateRejectsAConsumerWithNoEntities(t *testing.T) {
 func TestValidateAcceptsAnEntityOnSeveralConsumers(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		fluxaorm.ConsumerDef{Name: "reader-one", Entities: []any{consumedCdcEntity{}}},
-		fluxaorm.ConsumerDef{Name: "reader-two", Entities: []any{consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "reader-one", Entities: []any{consumedCdcEntity{}}},
+		orm.ConsumerDef{Name: "reader-two", Entities: []any{consumedCdcEntity{}}},
 	)
 
 	assert.NoError(t, err, "several consumers reading one entity is the whole point of subject filters")
