@@ -184,6 +184,7 @@ func (b *NatsConsumerBuilder) validate() error {
 func (b *NatsConsumerBuilder) toSettings() *NatsConsumerSettings {
 	return &NatsConsumerSettings{
 		Name:           b.name,
+		Stream:         b.streamName,
 		FilterSubjects: append([]string(nil), b.filterSubjects...),
 		AckWait:        b.ackWait,
 		MaxAckPending:  b.maxAckPending,

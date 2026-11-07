@@ -372,6 +372,7 @@ func seedConsumerSettings(r *registry, resolved *resolvedConsumer) {
 
 	pool.consumers[resolved.durable()] = &NatsConsumerSettings{
 		Name:           resolved.durable(),
+		Stream:         resolved.stream,
 		FilterSubjects: subjectStrings(resolved.subjects),
 		AckWait:        resolved.options.AckWait,
 		MaxAckPending:  resolved.options.MaxAckPending,

@@ -33,7 +33,10 @@ type NatsAuthConfig struct {
 }
 
 type NatsConsumerSettings struct {
-	Name           string
+	Name string
+	// Stream is the stream the durable lives on. Durable names are per stream, so a
+	// lookup by name alone can bind to a same-named durable on another stream.
+	Stream         string
 	FilterSubjects []string
 	AckWait        time.Duration
 	MaxAckPending  int
@@ -496,6 +499,14 @@ func (c *natsConsumerImplementation) resolveConsumer(ctx Context) (jetstream.Con
 	defer c.mu.Unlock()
 	if c.consumer != nil {
 		return c.consumer, nil
+	}
+	if c.settings.Stream != "" {
+		cons, err := c.js.Consumer(ctx.Context(), c.settings.Stream, c.settings.Name)
+		if err != nil {
+			return nil, fmt.Errorf("nats pool '%s': durable consumer '%s' on stream '%s': %w", c.poolCode, c.settings.Name, c.settings.Stream, err)
+		}
+		c.consumer = cons
+		return cons, nil
 	}
 	// Drain the entire stream lister before consulting Err() — the jetstream lister
 	// writes to its error field from a background goroutine, so an early break would race.
