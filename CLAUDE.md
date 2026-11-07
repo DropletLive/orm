@@ -42,7 +42,7 @@ Measured on 2026-10-26 (Apple M-series, Docker Desktop services, no `-race`; one
 
 Linting is configured in `revive.toml`. Cyclomatic complexity threshold is 100. `fmt.Print*` and `spew.Dump` calls are banned by `make check`.
 
-Pushes to `v2` and release tags matching `v2.*` run `.github/workflows/release.yml` (also available manually). Verify the branch commit before creating its release tag. It reads Go from `go.mod`, starts disposable MySQL on 3397, Redis on 6395, ClickHouse on 9942/9943 and NATS JetStream on 9944, regenerates test entities, then runs `go build ./...`, the full race-enabled test suite, `go vet ./...` and the targeted CDC delivery tests. The workflow requires only `contents: read` and does not publish a GitHub release; publication follows successful verification.
+Pushes to `main` and release tags matching `v*` run `.github/workflows/release.yml` (also available manually). Verify the branch commit before creating its release tag. It reads Go from `go.mod`, starts disposable MySQL on 3397, Redis on 6395, ClickHouse on 9942/9943 and NATS JetStream on 9944, regenerates test entities, then runs `go build ./...`, the full race-enabled test suite, `go vet ./...` and the targeted CDC delivery tests. The workflow requires only `contents: read` and does not publish a GitHub release; publication follows successful verification.
 
 ## Architecture
 
@@ -180,6 +180,37 @@ Removed. There is no FT.* support: no `GetRedisSearchAlters`, `RedisSearchQuery`
 The `redisSearch`, `searchable` and `sortable` tags are rejected by `Validate()` (checked per field in `buildTableFields`, so nested structs are covered) rather than ignored, so an application still relying on search fails loudly instead of silently losing index maintenance.
 
 Upgrading applications must drop what the old code left in Redis; nothing here cleans it up and `ClearRedisCache` does not reach it (the search prefix was separate from the row-cache prefix). List the indexes with `FT._LIST` and run `FT.DROPINDEX <tableName>_<hash> DD` for each; `DD` also deletes the `<5hex>:h:<id>` hashes.
+
+### Wire Names
+
+Names other processes, brokers and dashboards see. Changing one is a breaking change for a running fleet, not a refactor:
+
+| What | Value | Defined in |
+|---|---|---|
+| Entity stream / subjects | `ORM_ENTITY`: `orm.entity.<table>`, `orm.replay.<consumer>.<table>` | `subject.go` |
+| Task stream / subjects | `ORM_TASK`: `orm.task.<queue>.<Task>` | `subject.go` |
+| Job-run header | `Orm-Job-Run-ID` (`HeaderJobRunID`) | `task.go` |
+| Prometheus metrics | `orm_*` (`orm_db_queries_seconds`, `orm_cdc_messages_total`, `orm_nats_operations_seconds`, ...) | `metrics.go` |
+
+`GetNatsAlters` deletes only streams whose name starts with `ORM_` or `orm_` (`isOrmManaged`) and that are not registered. Any other stream on the broker is left alone. Durable consumer names are per stream, so the same `ConsumerDef` name on a new stream is a new durable that starts at the beginning of that stream.
+
+Redis cache keys are not wire names in this sense: the row prefix is a hash of `(pool, table)` and does not depend on the module or package name.
+
+### Migrating from fluxaorm
+
+This module is `github.com/latolukasz/fluxaorm/v2` v2.4.4 renamed, plus the commits after it (SearchMany round trips). Everything below is what an application coming from fluxaorm has to do.
+
+**Code.** Replace the import path with `github.com/DropletLive/orm` and `fluxaorm.` with `orm.`, then regenerate. The package is now called `orm`, so a local variable named `orm` (the common `orm fluxaorm.Context` parameter) shadows the package for the rest of its scope: `func f(orm orm.Context)` still compiles, but `orm.NewPager(...)` inside it does not. Rename only the locals that actually shadow a package reference; the compiler lists them. Generated code already uses `ctx`. A file that also imports another package named `orm` needs an alias for one of them.
+
+**Wire cutover.** fluxaorm used `FLUXA_ENTITY` / `FLUXA_TASK`, `fluxa.*` subjects, the `Fluxa-Job-Run-ID` header and `fluxaorm_*` metrics. The first deploy creates empty `ORM_*` streams and new durables there; nothing reads the `FLUXA_*` streams any more and `GetNatsAlters` never deletes them. Messages still in them (unconsumed entity events, pending or retrying tasks) are stranded. A rolling deploy also splits the fleet: old pods publish to `fluxa.*`, new pods consume `orm.*`. So:
+
+1. Stop every writer of tasks and entity events, then let the old consumers drain `FLUXA_ENTITY` and `FLUXA_TASK` to zero pending (`nats consumer report FLUXA_ENTITY`).
+2. Stop the old consumers. Deploy the whole fleet on the new version (not rolling across versions).
+3. Entity events lost in a failed drain can be recovered with a replay (`Enqueue`); outbox entities are re-driven by `RelayCDCOutbox` only while their rows are still `pending`.
+4. Delete the old streams by hand: `nats stream rm FLUXA_ENTITY`, `nats stream rm FLUXA_TASK`.
+5. Rename `fluxaorm_` to `orm_` in dashboards and alert rules. History stays under the old names.
+
+**Behavior that changed after v2.4.4.** MySQL DSNs get `interpolateParams=true` unless they set it or `MySQLOptions.ServerSidePreparedStatements` is true (see Batched Reads). Entities without `redisCache` read `SearchMany`/`SearchManyWithTotal`/`SearchOne` in one full-row query instead of IDs then `GetByIDs`.
 
 ### Key Supporting Files
 

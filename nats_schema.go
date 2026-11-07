@@ -228,9 +228,8 @@ func (a NatsAlter) Exec(ctx Context) error {
 }
 
 // GetNatsAlters compares registered NATS stream/consumer definitions with the actual broker state
-// and returns the operations needed to synchronize them. Manages two categories of streams:
-//  1. Async-flush stream (ORM_ASYNC_SQL)
-//  2. User-registered streams from RegisterNatsStream
+// and returns the operations needed to synchronize them. Manages the ORM_ENTITY and ORM_TASK streams
+// plus streams registered with RegisterNatsStream. Only ORM_-prefixed streams are ever deleted.
 func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 	reg := ctx.Engine().Registry().(*engineRegistryImplementation)
 
