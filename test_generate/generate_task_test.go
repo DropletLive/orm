@@ -84,6 +84,6 @@ func TestGeneratedPublisherRegistersTheTableName(t *testing.T) {
 	body := generated(t, "generateEntityDirty.go")
 
 	assert.Contains(t, body,
-		`orm.RegisterEntityPublisher[GenerateEntityDirty]("generateEntityDirty", buildGenerateEntityDirtyDirtyEvent)`)
+		`orm.RegisterCDCEntity[GenerateEntityDirty]("generateEntityDirty")`)
 	assert.NotContains(t, body, "orm.entity.")
 }

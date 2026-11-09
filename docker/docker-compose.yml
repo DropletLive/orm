@@ -31,6 +31,14 @@ services:
       - ${LOCAL_IP}:${NATS_HTTP_PORT}:8222
     volumes:
       - orm_volume_nats:/data
+  # Only the cdc_debezium parity test reads it; it publishes dbz.>, never the ORM's cdc.>.
+  debezium:
+    image: quay.io/debezium/server:3.6.3.Final
+    depends_on:
+      - mysql
+      - nats
+    volumes:
+      - ./debezium/application.properties:/debezium/config/application.properties:ro
 volumes:
   orm_volume_mysql: {}
   orm_volume_redis: {}

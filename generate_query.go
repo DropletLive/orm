@@ -198,6 +198,8 @@ func (g *codeGenerator) generateGetByIDs(schema *entitySchema, names *entityName
 		g.addLine("\t\t\t}")
 	}
 	g.addLine("\t\t}")
+	// Before the fill: a read cut short must not cache the rows it missed as not found.
+	g.addLine("\t\tif err := rows.Err(); err != nil { return nil, err }")
 	if schema.hasRedisCache {
 		g.addLine("\t\tif useCache {")
 		g.addLine("\t\t\tfor _, pos := range pending {")
@@ -605,6 +607,9 @@ func (g *codeGenerator) generateRowReaders(schema *entitySchema, names *entityNa
 	g.addLine("\t\t\treturn nil, err")
 	g.addLine("\t\t}")
 	g.addLine("\t\tresult = append(result, p.entityFromRow(ctx, sqlRow))")
+	g.addLine("\t}")
+	g.addLine("\tif err := rows.Err(); err != nil {")
+	g.addLine("\t\treturn nil, err")
 	g.addLine("\t}")
 	g.addLine("\tif len(result) == 0 {")
 	g.addLine("\t\treturn nil, nil")

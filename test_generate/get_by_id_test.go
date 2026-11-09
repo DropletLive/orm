@@ -69,7 +69,7 @@ func checkGetByIDUint64[T getByIDsTestEntity](t *testing.T, fixture any, table s
 
 func TestNotFoundError(t *testing.T) {
 	registry := FixtureRegistry()
-	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
+	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureCodegenConsumers(), FixtureEntities()...)
 	defer ctx.Engine().Nats("nats").Close()
 
 	_, err := entities.GenerateEntityProvider.GetByID(ctx, 123)

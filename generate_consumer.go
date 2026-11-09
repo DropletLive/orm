@@ -9,101 +9,6 @@ import (
 	"strings"
 )
 
-// generateEntityEventForEntity appends the CDC publisher / event-alias /
-// snapshot helper lines into the in-progress entity generation buffer. Called
-// from generateCodeForEntity when the entity publishes.
-//
-// The snapshot type is `map[string]any` keyed by entity column names. Typed
-// snapshot structs are a future enhancement.
-func (g *codeGenerator) generateEntityEventForEntity(schema *entitySchema, names *entityNames) {
-	// An `outbox`-only entity has no consumer to publish to but still needs the
-	// snapshot builder, because its outbox row carries the same payload.
-	if !schema.cdc && !schema.outbox {
-		return
-	}
-
-	entityName := names.entityName
-	snapshotAfterFn := "snapshot" + entityName + "After"
-	snapshotBeforeFn := "snapshot" + entityName + "FromOrigin"
-	buildEventFn := "build" + entityName + "DirtyEvent"
-
-	g.addImport("encoding/json")
-	g.addImport("time")
-
-	g.addLine(fmt.Sprintf("// %sDirtyEvent is the change envelope emitted for %s. `Before` and `After`", entityName, entityName))
-	g.addLine("// are map[string]any keyed by entity column names - Insert sets only After,")
-	g.addLine("// Delete sets only Before, Update sets both. Values originate from JSON decode,")
-	g.addLine("// so numbers arrive as json.Number; use type-asserting helpers when reading them.")
-	g.addLine(fmt.Sprintf("type %sDirtyEvent = orm.DirtyEvent[map[string]any]", entityName))
-	g.addLine("")
-
-	// snapshotAfter helper - overlays pending databaseBind values onto origin
-	// values, giving the post-change state for both inserts (origin holds new
-	// values since SetX writes directly to origin on new=true) and updates
-	// (databaseBind holds changed columns). Type-agnostic so reference columns
-	// and complex types work without special-casing.
-	g.addLine(fmt.Sprintf("func %s(e *%s) map[string]any {", snapshotAfterFn, entityName))
-	g.addLine("\tsnap := map[string]any{\"ID\": e.GetID()}")
-	g.addLine("\tbind := e.PrivateGetDatabaseBind()")
-	for _, col := range g.snapshotColumnNames(schema) {
-		g.addLine(fmt.Sprintf("\tif bind != nil { if v, ok := bind[%q]; ok { snap[%q] = v } else { snap[%q] = e.privateGetOriginalColumnValue(%q) } } else { snap[%q] = e.privateGetOriginalColumnValue(%q) }", col, col, col, col, col, col))
-	}
-	g.addLine("\treturn snap")
-	g.addLine("}")
-	g.addLine("")
-
-	// snapshotFromOrigin helper - reads origin values for all columns.
-	// Used for Before (Update) and Before (Delete) - the original pre-change state.
-	g.addLine(fmt.Sprintf("func %s(e *%s) map[string]any {", snapshotBeforeFn, entityName))
-	g.addLine("\tsnap := map[string]any{\"ID\": e.GetID()}")
-	for _, col := range g.snapshotColumnNames(schema) {
-		g.addLine(fmt.Sprintf("\tsnap[%q] = e.privateGetOriginalColumnValue(%q)", col, col))
-	}
-	g.addLine("\treturn snap")
-	g.addLine("}")
-	g.addLine("")
-
-	g.addLine(fmt.Sprintf("func %s(e *%s, op orm.DirtyOp, beforeOrigin map[string]any) ([]byte, error) {", buildEventFn, entityName))
-	g.addLine(fmt.Sprintf("\tev := &%sDirtyEvent{Op: op, ID: e.GetID(), TsMs: time.Now().UnixMilli()}", entityName))
-	g.addLine("\tswitch op {")
-	g.addLine("\tcase orm.DirtyInsert:")
-	g.addLine(fmt.Sprintf("\t\tsnap := %s(e)", snapshotAfterFn))
-	g.addLine("\t\tev.After = &snap")
-	g.addLine("\tcase orm.DirtyUpdate:")
-	g.addLine(fmt.Sprintf("\t\tsnapBefore := %s(e)", snapshotBeforeFn))
-	g.addLine(fmt.Sprintf("\t\tsnapAfter := %s(e)", snapshotAfterFn))
-	g.addLine("\t\tev.Before = &snapBefore")
-	g.addLine("\t\tev.After = &snapAfter")
-	g.addLine("\tcase orm.DirtyDelete:")
-	g.addLine(fmt.Sprintf("\t\tsnapBefore := %s(e)", snapshotBeforeFn))
-	g.addLine("\t\tev.Before = &snapBefore")
-	g.addLine("\t}")
-	g.addLine("\treturn json.Marshal(ev)")
-	g.addLine("}")
-	g.addLine("")
-
-	// The publisher registers under the table name; the subject format belongs
-	// to orm, so generated code never spells one out.
-	g.addLine("func init() {")
-	g.addLine(fmt.Sprintf("\torm.RegisterEntityPublisher[%s](%q, %s)", entityName, schema.tableName, buildEventFn))
-	g.addLine("}")
-	g.addLine("")
-}
-
-// snapshotColumnNames returns the entity's columns excluding "ID" (which is
-// emitted explicitly in every snapshot under the same key).
-func (g *codeGenerator) snapshotColumnNames(schema *entitySchema) []string {
-	cols := make([]string, 0, len(schema.columnNames))
-	for _, c := range schema.columnNames {
-		if c == "ID" {
-			continue
-		}
-		cols = append(cols, c)
-	}
-
-	return cols
-}
-
 // consumerIdent turns a consumer name like "order-indexer" into the Go
 // identifier suffix "OrderIndexer", used for the generated ref and builder type.
 func consumerIdent(name ConsumerName) string {
@@ -326,7 +231,7 @@ func (g *codeGenerator) generateConsumerBuilderFile(
 		g.addLine(fmt.Sprintf("\thandler func(ctx orm.Context, ev *%sDirtyEvent) error,", entityName))
 		g.addLine("\topts ...orm.HandlerOption,")
 		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
-		g.addLine(fmt.Sprintf("\tb.AddDispatch(%q, orm.BuildDispatch[map[string]any](handler, opts...))", entityName))
+		g.addLine(fmt.Sprintf("\tb.AddDispatch(%q, orm.BuildDispatch(handler, decode%sCDCRow, opts...))", entityName, entityName))
 		g.addLine("\treturn b")
 		g.addLine("}")
 		g.addLine("")
@@ -340,7 +245,7 @@ func (g *codeGenerator) generateConsumerBuilderFile(
 		g.addLine(fmt.Sprintf("\thandler func(ctx orm.Context, evs []*%sDirtyEvent) error,", entityName))
 		g.addLine("\topts ...orm.HandlerOption,")
 		g.addLine(fmt.Sprintf(") *%s {", builderTypeName))
-		g.addLine(fmt.Sprintf("\tb.AddBatchDispatch(%q, orm.BuildBatchDispatch[map[string]any](handler, opts...))", entityName))
+		g.addLine(fmt.Sprintf("\tb.AddBatchDispatch(%q, orm.BuildBatchDispatch(handler, decode%sCDCRow, opts...))", entityName, entityName))
 		g.addLine("\treturn b")
 		g.addLine("}")
 		g.addLine("")

@@ -285,22 +285,30 @@ func TestRepeatedSaveOutboxCapturesEveryWrite(t *testing.T) {
 	}))
 	rows := outboxRows(t, ctx.Clone())
 	require.Len(t, rows, 3)
-	var events []orm.DirtyEvent[map[string]any]
+	type rowImage struct {
+		Name string `json:"Name"`
+	}
+	type envelope struct {
+		Op     string    `json:"op"`
+		Before *rowImage `json:"before"`
+		After  *rowImage `json:"after"`
+	}
+	var events []envelope
 	for _, row := range rows {
 		require.Equal(t, enums.CDCOutboxStatusList.Dispatched, row.GetStatus())
-		var event orm.DirtyEvent[map[string]any]
+		var event envelope
 		require.NoError(t, json.Unmarshal([]byte(row.GetPayload()), &event))
 		events = append(events, event)
 	}
-	require.Equal(t, orm.DirtyInsert, events[0].Op)
+	require.Equal(t, orm.CDCOpCreate, events[0].Op)
 	require.Nil(t, events[0].Before)
-	require.Equal(t, "inserted", (*events[0].After)["Name"])
-	require.Equal(t, orm.DirtyUpdate, events[1].Op)
-	require.Equal(t, "inserted", (*events[1].Before)["Name"])
-	require.Equal(t, "updated", (*events[1].After)["Name"])
-	require.Equal(t, orm.DirtyUpdate, events[2].Op)
-	require.Equal(t, "updated", (*events[2].Before)["Name"])
-	require.Equal(t, "inserted", (*events[2].After)["Name"])
+	require.Equal(t, "inserted", events[0].After.Name)
+	require.Equal(t, orm.CDCOpUpdate, events[1].Op)
+	require.Equal(t, "inserted", events[1].Before.Name)
+	require.Equal(t, "updated", events[1].After.Name)
+	require.Equal(t, orm.CDCOpUpdate, events[2].Op)
+	require.Equal(t, "updated", events[2].Before.Name)
+	require.Equal(t, "inserted", events[2].After.Name)
 	readback, err := entities.GenerateEntityOutboxProvider.GetByID(ctx.Clone(), e.GetID())
 	require.NoError(t, err)
 	require.Equal(t, "inserted", readback.GetName())

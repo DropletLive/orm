@@ -188,6 +188,9 @@ type Rows interface {
 	Next() bool
 	Scan(dest ...any) error
 	Columns() ([]string, error)
+	// Err reports why Next stopped early; without it a broken read looks like
+	// fewer rows.
+	Err() error
 }
 
 type rowsStruct struct {
@@ -208,6 +211,10 @@ func (r *rowsStruct) Columns() ([]string, error) {
 
 func (r *rowsStruct) Scan(dest ...any) error {
 	return r.sqlRows.Scan(dest...)
+}
+
+func (r *rowsStruct) Err() error {
+	return r.sqlRows.Err()
 }
 
 type SQLRow interface {

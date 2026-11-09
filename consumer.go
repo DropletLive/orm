@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -236,7 +235,7 @@ func (c *consumerImplementation) Consume(ctx context.Context, batch int, timeout
 		entityName := c.consumer.dispatchKeyBySubject[Subject(msg.Subject)]
 		if hasMetrics {
 			metrics.cdcMessages.WithLabelValues(
-				string(c.consumer.name), entityName, dirtyOpLabel(msg.Headers.Get(HeaderDirtyOp))).Inc()
+				string(c.consumer.name), entityName, cdcOpLabel(msg.Data)).Inc()
 			if !msg.Timestamp.IsZero() {
 				metrics.streamLag.WithLabelValues(string(c.consumer.name)).Observe(time.Since(msg.Timestamp).Seconds())
 			}
@@ -312,8 +311,9 @@ func (c *consumerImplementation) logHandlerError(ctx Context, msg *NatsMessage, 
 	fillLogFields(ctx, loggers, string(c.consumer.name), sourceNats, "CDC_HANDLE", "subject: "+msg.Subject, nil, false, err)
 }
 
-// enqueueReplayEvents publishes synthetic DirtyUpdate events onto one
-// consumer's replay subjects, in one batch.
+// enqueueReplayEvents publishes a read event (op "r") per entity onto one
+// consumer's replay subjects, in one batch. Listeners see it as an update whose
+// Before and After are the same row.
 //
 // Each message gets a unique Nats-Msg-Id so the dedup window never collapses
 // repeated replays of the same row - an operator asking for a reindex twice
@@ -341,29 +341,17 @@ func enqueueReplayEvents(orm Context, consumer ConsumerName, entities []Entity) 
 		if entity == nil {
 			return errors.New("enqueue: entity is nil")
 		}
-		t := reflect.TypeOf(entity)
-		for t.Kind() == reflect.Ptr {
-			t = t.Elem()
-		}
-		publisher, hasPub := reg.dirtyPublishers[t]
-		if !hasPub {
-			return fmt.Errorf("no dirty publisher registered for entity %s", t.Name())
-		}
-		if _, declared := resolved.dispatchKeyBySubject[publisher.subject]; !declared {
-			return fmt.Errorf("consumer '%s' does not declare entity %s", consumer, publisher.entityName)
-		}
-
-		payload, err := publisher.buildEvent(entity, DirtyUpdate, nil)
+		entry, payload, err := cdcReadPayload(reg, entity)
 		if err != nil {
-			return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
+			return err
 		}
-		if payload == nil {
-			continue
+		if _, declared := resolved.dispatchKeyBySubject[EntitySubject(entry.tableName)]; !declared {
+			return fmt.Errorf("consumer '%s' does not declare entity %s", consumer, entry.entityName)
 		}
 
-		msg := newEntityMessage(ReplaySubject(consumer, publisher.tableName), DirtyUpdate, payload)
+		msg := newEntityMessage(ReplaySubject(consumer, entry.tableName), payload)
 		msg.Headers.Set("Nats-Msg-Id",
-			fmt.Sprintf("replay:%s:%s:%d:%d", consumer, publisher.entityName, entity.GetID(), time.Now().UnixNano()))
+			fmt.Sprintf("replay:%s:%s:%d:%d", consumer, entry.entityName, entity.GetID(), time.Now().UnixNano()))
 		msgs = append(msgs, msg)
 	}
 
@@ -374,7 +362,27 @@ func enqueueReplayEvents(orm Context, consumer ConsumerName, entities []Entity) 
 	return nil
 }
 
+// cdcReadPayload is the "r" event for an entity as it is loaded now.
+func cdcReadPayload(reg *engineRegistryImplementation, entity Entity) (*cdcEntityEntry, []byte, error) {
+	entry, ok := reg.cdcEntityFor(entity)
+	if !ok {
+		return nil, nil, fmt.Errorf("entity %T is not on the cdc feed", entity)
+	}
+	source, ok := entity.(cdcEntity)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, entity)
+	}
+	payload, err := marshalCDCChange(CDCChange{Op: CDCOpRead, After: source.PrivateCDCRow(false)},
+		entry.database, entry.tableName, time.Now())
+	if err != nil {
+		return nil, nil, fmt.Errorf("build cdc read event for %s: %w", entry.entityName, err)
+	}
+
+	return entry, payload, nil
+}
+
 // ConsumerPending reports how many messages a consumer still has to deliver.
+// CDCReaderName reports the change feed reader's backlog.
 //
 // This is the backlog signal - "is work piling up on this consumer" - and it
 // lives here because the durable name is orm's to decide, so an
@@ -384,16 +392,21 @@ func ConsumerPending(ctx Context, consumer ConsumerName) (uint64, error) {
 	if !ok {
 		return 0, errors.New("consumer pending: unsupported context")
 	}
-	resolved := orm.engine.registry.consumers[consumer]
-	if resolved == nil {
-		return 0, fmt.Errorf("consumer '%s' is not declared", consumer)
+	reg := orm.engine.registry
+	pool, stream := reg.cdcStream.NatsPool, CDCStreamName
+	if consumer != CDCReaderName {
+		resolved := reg.consumers[consumer]
+		if resolved == nil {
+			return 0, fmt.Errorf("consumer '%s' is not declared", consumer)
+		}
+		pool, stream = resolved.options.NatsPool, resolved.stream
 	}
 
-	js, err := orm.engine.Nats(resolved.options.NatsPool).GetJetStream()
+	js, err := orm.engine.Nats(pool).GetJetStream()
 	if err != nil {
 		return 0, err
 	}
-	nc, err := js.Consumer(ctx.Context(), resolved.stream, resolved.durable())
+	nc, err := js.Consumer(ctx.Context(), stream, string(consumer))
 	if err != nil {
 		return 0, err
 	}

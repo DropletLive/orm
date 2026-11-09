@@ -75,6 +75,9 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 	require.NoError(t, ctx.Save(e))
 
 	require.Eventually(t, func() bool {
+		if err := pumpReader(ctx); err != nil {
+			return false
+		}
 		pending, err := orm.ConsumerPending(ctx, "test-indexer")
 
 		return err == nil && pending == 1
@@ -196,7 +199,7 @@ func reconcileStreams(t *testing.T, maxBytes int64) orm.Context {
 	registry.RegisterEntityStream(orm.EntityStreamOptions{NatsPool: "nats", MaxBytes: maxBytes})
 	registry.RegisterTaskStream(orm.TaskStreamOptions{NatsPool: "nats", MaxBytes: maxBytes})
 	registry.RegisterEntity(FixtureEntities()...)
-	for _, def := range FixtureConsumers() {
+	for _, def := range FixtureCodegenConsumers() {
 		def.NatsPool = "nats"
 		registry.RegisterConsumer(def)
 	}

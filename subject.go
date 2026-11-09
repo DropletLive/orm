@@ -30,9 +30,18 @@ const (
 	// not evict a change nobody has consumed yet.
 	TaskStreamName = "ORM_TASK"
 
+	// CDCStreamName carries the change feed: one Debezium envelope per row change
+	// on cdc.<database>.<table>. Debezium writes the same subjects once it takes
+	// over, so the stream is shared with it and never deleted by the ORM.
+	CDCStreamName = "CDC"
+	// CDCReaderName is the one durable on the change feed. It forwards each
+	// change of a listened-to table to the entity stream for the listeners.
+	CDCReaderName ConsumerName = "orm-cdc-reader"
+
 	// DefaultQueue carries every task that does not declare a Queue().
 	DefaultQueue Queue = "default"
 
+	cdcSubjectPrefix    = "cdc."
 	entitySubjectPrefix = "orm.entity."
 	replaySubjectPrefix = "orm.replay."
 	taskSubjectPrefix   = "orm.task."
@@ -40,6 +49,7 @@ const (
 	entitySubjectWildcard = entitySubjectPrefix + ">"
 	replaySubjectWildcard = replaySubjectPrefix + ">"
 	taskSubjectWildcard   = taskSubjectPrefix + ">"
+	cdcSubjectWildcard    = cdcSubjectPrefix + ">"
 )
 
 func (s Subject) String() string { return string(s) }
@@ -49,6 +59,12 @@ func (s Subject) String() string { return string(s) }
 // the subject and orphan a consumer's filter.
 func EntitySubject(table string) Subject {
 	return Subject(entitySubjectPrefix + table)
+}
+
+// CDCSubject is where a table's row changes enter the system, named the way
+// Debezium names them: its topic prefix, the database, the table.
+func CDCSubject(database, table string) Subject {
+	return Subject(cdcSubjectPrefix + database + "." + table)
 }
 
 // ReplaySubject addresses a synthetic event to one consumer only.

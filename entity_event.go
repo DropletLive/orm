@@ -1,15 +1,12 @@
 package orm
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/nats-io/nats.go"
+	"time"
 )
 
 // DirtyOp identifies the kind of database mutation that produced an event.
@@ -21,7 +18,7 @@ const (
 	DirtyDelete DirtyOp = 3
 )
 
-// String returns the lowercase name (used in logs / wire header).
+// String returns the lowercase name (used in logs and metrics).
 func (op DirtyOp) String() string {
 	switch op {
 	case DirtyInsert:
@@ -35,37 +32,30 @@ func (op DirtyOp) String() string {
 	return "unknown"
 }
 
-// dirtyOpLabel parses the Dirty-Op header value into a human-readable op name
-// for metrics. Falls back to "unknown" for missing or unparseable headers so
-// the metric label never collapses to an empty string.
-func dirtyOpLabel(headerValue string) string {
-	if headerValue == "" {
-		return "unknown"
-	}
-	n, err := strconv.ParseUint(headerValue, 10, 8)
-	if err != nil {
-		return "unknown"
-	}
-
-	return DirtyOp(n).String()
-}
-
-// DirtyEvent is the typed change envelope published when an entity tagged
-// `orm:"cdc"` is flushed. The generator emits per-entity aliases:
+// DirtyEvent is one row change as a listener sees it. Before and After are
+// read-only entities decoded from the row images:
 //
 //	type OrdersDirtyEvent = orm.DirtyEvent[Orders]
+//
+// A soft delete arrives as DirtyDelete, and a replay as DirtyUpdate with Before
+// and After the same row.
 type DirtyEvent[T any] struct {
-	Op     DirtyOp `json:"op"`
-	ID     uint64  `json:"id"`
-	Before *T      `json:"before,omitempty"` // nil for Insert
-	After  *T      `json:"after,omitempty"`  // nil for Delete
-	TsMs   int64   `json:"ts_ms"`
+	Op     DirtyOp
+	ID     uint64
+	Before *T // nil for Insert
+	After  *T // nil for Delete
+	TsMs   int64
 }
 
-// HeaderDirtyOp carries the numeric DirtyOp value as a decimal string. It is
-// the only header on an entity message: the entity's identity is the subject,
-// so duplicating it in a header would just be a second thing to keep in sync.
-const HeaderDirtyOp = "Dirty-Op"
+// CDCRow is what a generated entity provides so a listener can receive it.
+type CDCRow[T any] interface {
+	*T
+	GetID() uint64
+	PrivateColumnValue(column string) any
+}
+
+// CDCRowDecoder builds a read-only entity from one row image. Generated.
+type CDCRowDecoder[T any] func(ctx Context, row map[string]json.RawMessage) (*T, error)
 
 // HandlerOption configures a single typed handler (field filtering, etc).
 type HandlerOption func(*handlerConfig)
@@ -93,18 +83,20 @@ func WatchFields(fields ...Field) HandlerOption {
 
 // BuildDispatch wraps a typed user handler into the generic Dispatch closure.
 // Generated OnX methods call this.
-func BuildDispatch[T any](handler func(ctx Context, ev *DirtyEvent[T]) error, opts ...HandlerOption) Dispatch {
+func BuildDispatch[T any, PT CDCRow[T]](
+	handler func(ctx Context, ev *DirtyEvent[T]) error, decode CDCRowDecoder[T], opts ...HandlerOption,
+) Dispatch {
 	cfg := &handlerConfig{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
 	return func(ctx Context, msg *NatsMessage) error {
-		ev, err := decodeDirtyEvent[T](msg)
+		ev, err := decodeCDCEvent[T, PT](ctx, msg.Data, decode)
 		if err != nil {
 			return err
 		}
-		if len(cfg.watchFields) > 0 && ev.Op == DirtyUpdate && !dirtyEventHasFieldChanges(ev, cfg.watchFields) {
+		if !dirtyEventHasFieldChanges[T, PT](ev, cfg.watchFields) {
 			return nil
 		}
 
@@ -119,8 +111,8 @@ func BuildDispatch[T any](handler func(ctx Context, ev *DirtyEvent[T]) error, op
 // WatchFields; if nothing survives the filter the handler is skipped and the
 // group acks. A decode failure fails the whole group rather than silently
 // dropping a message.
-func BuildBatchDispatch[T any](
-	handler func(ctx Context, evs []*DirtyEvent[T]) error, opts ...HandlerOption,
+func BuildBatchDispatch[T any, PT CDCRow[T]](
+	handler func(ctx Context, evs []*DirtyEvent[T]) error, decode CDCRowDecoder[T], opts ...HandlerOption,
 ) BatchDispatch {
 	cfg := &handlerConfig{}
 	for _, opt := range opts {
@@ -130,11 +122,11 @@ func BuildBatchDispatch[T any](
 	return func(ctx Context, msgs []*NatsMessage) error {
 		evs := make([]*DirtyEvent[T], 0, len(msgs))
 		for _, msg := range msgs {
-			ev, err := decodeDirtyEvent[T](msg)
+			ev, err := decodeCDCEvent[T, PT](ctx, msg.Data, decode)
 			if err != nil {
 				return err
 			}
-			if len(cfg.watchFields) > 0 && ev.Op == DirtyUpdate && !dirtyEventHasFieldChanges(ev, cfg.watchFields) {
+			if !dirtyEventHasFieldChanges[T, PT](ev, cfg.watchFields) {
 				continue
 			}
 			evs = append(evs, ev)
@@ -147,44 +139,89 @@ func BuildBatchDispatch[T any](
 	}
 }
 
-// decodeDirtyEvent unmarshals one message into its typed envelope.
-//
-// UseNumber keeps numeric Before/After snapshot values (T == map[string]any) as
-// json.Number rather than float64. Snapshots carry uint64 entity IDs and FK
-// references that exceed float64's 2^53 exact range, which a float decode would
-// silently round.
-func decodeDirtyEvent[T any](msg *NatsMessage) (*DirtyEvent[T], error) {
-	ev := &DirtyEvent[T]{}
-	dec := json.NewDecoder(bytes.NewReader(msg.Data))
-	dec.UseNumber()
-	if err := dec.Decode(ev); err != nil {
-		return nil, fmt.Errorf("dirty event unmarshal: %w", err)
+// decodeCDCEvent turns one envelope into the listener's event. This is the one
+// place Debezium's ops become DirtyOps, so the soft delete and replay rules live
+// here and nowhere else.
+func decodeCDCEvent[T any, PT CDCRow[T]](ctx Context, data []byte, decode CDCRowDecoder[T]) (*DirtyEvent[T], error) {
+	var env cdcWireEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("cdc envelope: %w", err)
 	}
+	before, err := decodeCDCImage(ctx, env.Before, decode)
+	if err != nil {
+		return nil, fmt.Errorf("cdc before image: %w", err)
+	}
+	after, err := decodeCDCImage(ctx, env.After, decode)
+	if err != nil {
+		return nil, fmt.Errorf("cdc after image: %w", err)
+	}
+
+	ev := &DirtyEvent[T]{TsMs: env.Source.TsMs, Before: before, After: after}
+	if ev.TsMs == 0 {
+		ev.TsMs = env.TsMs
+	}
+	switch env.Op {
+	case CDCOpCreate:
+		ev.Op = DirtyInsert
+		ev.Before = nil
+	case CDCOpUpdate:
+		ev.Op = DirtyUpdate
+		if softDeleted[T, PT](before, after) {
+			ev.Op = DirtyDelete
+			ev.After = nil
+		}
+	case CDCOpDelete:
+		ev.Op = DirtyDelete
+		ev.After = nil
+	case CDCOpRead:
+		ev.Op = DirtyUpdate
+		ev.Before = after
+	default:
+		return nil, fmt.Errorf("cdc envelope: unknown op %q", env.Op)
+	}
+
+	row := ev.After
+	if row == nil {
+		row = ev.Before
+	}
+	if row == nil {
+		return nil, fmt.Errorf("cdc envelope: op %q carries no row", env.Op)
+	}
+	ev.ID = PT(row).GetID()
 
 	return ev, nil
 }
 
+func decodeCDCImage[T any](ctx Context, raw json.RawMessage, decode CDCRowDecoder[T]) (*T, error) {
+	image, err := decodeCDCRowImage(raw)
+	if err != nil || image == nil {
+		return nil, err
+	}
+
+	return decode(ctx, image)
+}
+
+// softDeleted reports an update that set FakeDelete. The binlog sees an UPDATE;
+// listeners have always seen a delete.
+func softDeleted[T any, PT CDCRow[T]](before, after *T) bool {
+	if before == nil || after == nil {
+		return false
+	}
+	was, _ := PT(before).PrivateColumnValue("FakeDelete").(bool)
+	is, _ := PT(after).PrivateColumnValue("FakeDelete").(bool)
+
+	return !was && is
+}
+
 // dirtyEventHasFieldChanges returns true iff at least one of `fields` differs
-// between Before and After. For non-Update events it returns true unconditionally
-// (Insert/Delete always pass field filtering).
-func dirtyEventHasFieldChanges[T any](ev *DirtyEvent[T], fields []string) bool {
-	if ev.Op != DirtyUpdate {
+// between Before and After. Insert, Delete and an empty field list always pass.
+func dirtyEventHasFieldChanges[T any, PT CDCRow[T]](ev *DirtyEvent[T], fields []string) bool {
+	if len(fields) == 0 || ev.Op != DirtyUpdate || ev.Before == nil || ev.After == nil {
 		return true
 	}
-	if ev.Before == nil || ev.After == nil {
-		return true
-	}
-	beforeVal := reflect.ValueOf(*ev.Before)
-	afterVal := reflect.ValueOf(*ev.After)
+	before, after := PT(ev.Before), PT(ev.After)
 	for _, f := range fields {
-		b, a := fieldValue(beforeVal, f), fieldValue(afterVal, f)
-		if b.IsValid() != a.IsValid() {
-			return true
-		}
-		if !b.IsValid() {
-			continue
-		}
-		if !reflect.DeepEqual(b.Interface(), a.Interface()) {
+		if !reflect.DeepEqual(before.PrivateColumnValue(f), after.PrivateColumnValue(f)) {
 			return true
 		}
 	}
@@ -192,97 +229,61 @@ func dirtyEventHasFieldChanges[T any](ev *DirtyEvent[T], fields []string) bool {
 	return false
 }
 
-// fieldValue extracts a snapshot field for the WatchFields comparison.
-// Handles both the map[string]any snapshot shape and the eventual typed
-// struct case, returning an invalid Value when the field is absent so the
-// caller can distinguish "missing" from "zero value".
-func fieldValue(v reflect.Value, name string) reflect.Value {
-	switch v.Kind() {
-	case reflect.Map:
-		return v.MapIndex(reflect.ValueOf(name))
-	case reflect.Struct:
-		return v.FieldByName(name)
-	default:
-		return reflect.Value{}
-	}
+// ----- CDC entity registration -----
+
+// cdcEntity is what generated code adds to an entity that is on the change
+// feed: its row image, and the change one write makes.
+type cdcEntity interface {
+	Entity
+	PrivateCDCRow(withChanges bool) map[string]any
+	PrivateCDCChange(op DirtyOp) CDCChange
 }
 
-// ----- Publisher registration -----
-
-// dirtyPublisherEntry holds the per-entity publisher closure plus the identity
-// its messages carry. Stored in a package-level registry; copied into the engine
-// at Validate() time keyed by reflect.Type.
-type dirtyPublisherEntry struct {
-	subject     Subject
-	tableName   string
-	entityName  string
+// cdcEntityEntry is one table on the change feed.
+type cdcEntityEntry struct {
+	// subject is cdc.<database>.<table>, known once the engine is validated.
+	subject    Subject
+	tableName  string
+	entityName string
+	database   string
+	// cdc means listeners read it: the reader forwards its changes.
 	cdc         bool
 	outbox      bool
-	buildEvent  func(entity Entity, op DirtyOp, beforeOrigin map[string]any) ([]byte, error)
 	reflectType reflect.Type
 }
 
-var dirtyPublishersMu sync.RWMutex
-var dirtyPublishers = make(map[reflect.Type]*dirtyPublisherEntry)
+var cdcEntitiesMu sync.RWMutex
+var cdcEntities = make(map[reflect.Type]*cdcEntityEntry)
 
-// RegisterEntityPublisher records a per-entity publisher closure under the
-// entity's reflect.Type. Called from generated `init()` blocks. The closure
-// receives the entity + op + before-state and returns the marshaled wire
-// payload - the generator emits the typed snapshot construction inline so the
-// entity type and the JSON payload type stay independent.
-//
-// The table name is the argument rather than the subject because the subject
-// format is orm's to own; generated code names the table it already knows.
+// RegisterCDCEntity records a generated entity that is on the change feed.
+// Called from generated `init()` blocks.
 //
 // Duplicate registrations for the same E silently replace, so re-running tests
 // with hot-reload doesn't error.
-func RegisterEntityPublisher[E any](
-	table string,
-	buildEvent func(entity *E, op DirtyOp, beforeOrigin map[string]any) ([]byte, error),
-) {
+func RegisterCDCEntity[E any](table string) {
 	var zero E
 	t := reflect.TypeOf(zero)
 	if t == nil {
-		panic("RegisterEntityPublisher: E must be a concrete struct type")
+		panic("RegisterCDCEntity: E must be a concrete struct type")
 	}
-	wrapped := func(e Entity, op DirtyOp, beforeOrigin map[string]any) ([]byte, error) {
-		typed, ok := any(e).(*E)
-		if !ok {
-			return nil, fmt.Errorf("RegisterEntityPublisher[%s]: entity is %T", t.Name(), e)
-		}
-
-		return buildEvent(typed, op, beforeOrigin)
-	}
-	dirtyPublishersMu.Lock()
-	dirtyPublishers[t] = &dirtyPublisherEntry{
-		subject:     EntitySubject(table),
+	cdcEntitiesMu.Lock()
+	cdcEntities[t] = &cdcEntityEntry{
 		tableName:   table,
 		entityName:  t.Name(),
-		buildEvent:  wrapped,
 		reflectType: t,
 	}
-	dirtyPublishersMu.Unlock()
+	cdcEntitiesMu.Unlock()
 }
 
-// getDirtyPublisher returns the registered publisher for the given reflect.Type, if any.
-func getDirtyPublisher(t reflect.Type) (*dirtyPublisherEntry, bool) {
-	dirtyPublishersMu.RLock()
-	defer dirtyPublishersMu.RUnlock()
-	entry, ok := dirtyPublishers[t]
-
-	return entry, ok
-}
-
-// getDirtyPublisherByEntityName returns the publisher whose generated entity
-// struct has the given Go name. This is the lookup resolveEntityPublishers uses
-// because the schema's reflect.Type points at the user-supplied source struct
-// (e.g. ProductEntity) while the publisher init() registers under the generated
-// entity struct (e.g. Products) - distinct types in distinct packages, so a
-// reflect.Type lookup would always miss.
-func getDirtyPublisherByEntityName(name string) (*dirtyPublisherEntry, bool) {
-	dirtyPublishersMu.RLock()
-	defer dirtyPublishersMu.RUnlock()
-	for _, entry := range dirtyPublishers {
+// getCDCEntityByName returns the entry whose generated entity struct has the
+// given Go name. The schema's reflect.Type points at the user-supplied source
+// struct (e.g. ProductEntity) while init() registers the generated struct (e.g.
+// Products) - distinct types in distinct packages, so a reflect.Type lookup
+// would always miss.
+func getCDCEntityByName(name string) (*cdcEntityEntry, bool) {
+	cdcEntitiesMu.RLock()
+	defer cdcEntitiesMu.RUnlock()
+	for _, entry := range cdcEntities {
 		if entry.entityName == name {
 			return entry, true
 		}
@@ -291,24 +292,10 @@ func getDirtyPublisherByEntityName(name string) (*dirtyPublisherEntry, bool) {
 	return nil, false
 }
 
-// withSchemaConfig copies a publisher and folds in the schema-derived settings.
-//
-// The copy matters: getDirtyPublisher returns a pointer into the package-global
-// registry that every engine in the process shares, so writing to it would both
-// leak one engine's configuration into another and race two concurrent
-// Validate() calls.
-func withSchemaConfig(entry *dirtyPublisherEntry, schema *entitySchema) *dirtyPublisherEntry {
-	scoped := *entry
-	scoped.cdc = schema.cdc
-	scoped.outbox = schema.outbox
-
-	return &scoped
-}
-
 // generatedEntityName produces the Go identifier for the entity struct that
 // orm.Generate emits from a schema's tableName. Mirrors codeGenerator's
 // capitalizeFirst (split on `_`, capitalize each part's first letter) so the
-// publisher-name lookup at Validate() time matches the name the generator used.
+// lookup at Validate() time matches the name the generator used.
 func generatedEntityName(tableName string) string {
 	parts := strings.Split(tableName, "_")
 	for i, part := range parts {
@@ -325,21 +312,58 @@ func generatedEntityName(tableName string) string {
 	return strings.Join(parts, "")
 }
 
+// isOnCDCFeed decides which tables get a row image codec: the ones listeners
+// declare, and the outbox ones whose row stores the same payload.
+func isOnCDCFeed(schema *entitySchema) bool {
+	return schema.cdc || schema.outbox
+}
+
+// resolveCDCEntities runs at Validate() time. It copies each registered entry
+// rather than writing to it: the registry is package-global and shared by every
+// engine in the process.
+//
+// A missing entry is tolerated: TestGenerate runs Validate before the freshly
+// generated init() blocks are compiled in.
+func resolveCDCEntities(e *engineImplementation) {
+	reg := e.registry
+	reg.cdcEntities = make(map[reflect.Type]*cdcEntityEntry)
+
+	for _, schema := range reg.entitySchemas {
+		if !isOnCDCFeed(schema) {
+			continue
+		}
+		entry, ok := getCDCEntityByName(generatedEntityName(schema.tableName))
+		if !ok {
+			continue
+		}
+		scoped := *entry
+		scoped.cdc = schema.cdc
+		scoped.outbox = schema.outbox
+		scoped.database = e.dbServers[schema.mysqlPoolCode].GetConfig().GetDatabaseName()
+		scoped.subject = CDCSubject(scoped.database, schema.tableName)
+		reg.cdcEntities[entry.reflectType] = &scoped
+	}
+}
+
+func (reg *engineRegistryImplementation) cdcEntityFor(entity Entity) (*cdcEntityEntry, bool) {
+	t := reflect.TypeOf(entity)
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	entry, ok := reg.cdcEntities[t]
+
+	return entry, ok
+}
+
 // ----- Publish -----
 
 // newEntityMessage builds the message every publish path uses - the post-commit
-// flush, the outbox relay and replay - including the deterministic Nats-Msg-Id
-// that JetStream dedups on. One builder, so a relayed message can never drift
-// from the original and lose its dedup.
-//
-// The id is scoped by subject and payload only. That is what makes one write one
-// message: under the old per-consumer streams the id carried the stream name, so
-// the same change published once per reader.
-func newEntityMessage(subject Subject, op DirtyOp, payload []byte) *NatsMessage {
+// flush, the outbox relay, the reader's forward and replay - including the
+// deterministic Nats-Msg-Id that JetStream dedups on. One builder, so a relayed
+// message can never drift from the original and lose its dedup.
+func newEntityMessage(subject Subject, payload []byte) *NatsMessage {
 	msg := NewNatsMessage(string(subject))
 	msg.Data = payload
-	msg.Headers = nats.Header{}
-	msg.Headers.Set(HeaderDirtyOp, strconv.FormatUint(uint64(op), 10))
 	msg.Headers.Set("Nats-Msg-Id", fmt.Sprintf("%s:%d", subject, msgIDHash(payload)))
 
 	return msg
@@ -359,6 +383,18 @@ func dirtyOpFromFlushType(t uint8) DirtyOp {
 	return 0
 }
 
+// buildCDCPayload serialises one write's change. The envelope carries the
+// commit time, so the bytes are not deterministic: callers that need the same
+// bytes twice (the outbox) keep the first serialisation.
+func buildCDCPayload(entry *cdcEntityEntry, entity Entity, op DirtyOp) ([]byte, error) {
+	source, ok := entity.(cdcEntity)
+	if !ok {
+		return nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, entity)
+	}
+
+	return marshalCDCChange(source.PrivateCDCChange(op), entry.database, entry.tableName, time.Now())
+}
+
 // pendingDirtyMessages accumulates messages across a whole Flush, keyed by NATS
 // pool, so each pool is published in one batch instead of one round-trip per
 // entity.
@@ -366,32 +402,23 @@ type pendingDirtyMessages map[string][]*NatsMessage
 
 // buildDirtyEvent serialises the event once and appends exactly one message,
 // whatever number of consumers read that entity.
-func buildDirtyEvent(
-	orm Context, pending pendingDirtyMessages, publisher *dirtyPublisherEntry,
-	w *pendingWrite, op DirtyOp, beforeOrigin map[string]any,
-) error {
-	// Outbox staging already serialised this event. Reuse those exact bytes:
-	// buildEvent stamps TsMs, so a second call would publish a payload the
-	// stored row does not match, and the relay could no longer replay it under
-	// the same dedup id.
+func buildDirtyEvent(orm Context, pending pendingDirtyMessages, entry *cdcEntityEntry, w *pendingWrite, op DirtyOp) error {
+	// Outbox staging already serialised this event. Reuse those exact bytes, so
+	// the relay replays it under the same dedup id.
 	payload := w.dirtyPayload
 	if payload == nil {
 		var err error
-		payload, err = publisher.buildEvent(w.entity, op, beforeOrigin)
+		payload, err = buildCDCPayload(entry, w.entity, op)
 		if err != nil {
-			return fmt.Errorf("build dirty event for %s: %w", publisher.entityName, err)
+			return fmt.Errorf("build cdc event for %s: %w", entry.entityName, err)
 		}
 	}
-	if payload == nil {
-		return nil
-	}
 
-	reg := orm.Engine().Registry().(*engineRegistryImplementation)
-	poolCode := reg.entityStream.NatsPool
+	poolCode := orm.Engine().Registry().(*engineRegistryImplementation).cdcStream.NatsPool
 	if pool := orm.Engine().Nats(poolCode); pool == nil {
-		return fmt.Errorf("nats pool '%s' for the entity stream not configured", poolCode)
+		return fmt.Errorf("nats pool '%s' for the cdc stream not configured", poolCode)
 	}
-	pending[poolCode] = append(pending[poolCode], newEntityMessage(publisher.subject, op, payload))
+	pending[poolCode] = append(pending[poolCode], newEntityMessage(entry.subject, payload))
 
 	return nil
 }
@@ -424,27 +451,4 @@ func msgIDHash(b []byte) uint64 {
 	}
 
 	return h
-}
-
-// resolveEntityPublishers runs at Validate() time to index every `cdc`-tagged
-// entity's publisher by reflect.Type for the flush path.
-//
-// A missing publisher is tolerated: TestGenerate runs Validate before the
-// freshly generated init() blocks are compiled in.
-func resolveEntityPublishers(e *engineImplementation) {
-	reg := e.registry
-	reg.dirtyPublishers = make(map[reflect.Type]*dirtyPublisherEntry)
-
-	for _, schema := range reg.entitySchemas {
-		// An `outbox`-only entity has no consumer but still needs its publisher
-		// indexed: the outbox row carries the same snapshot payload.
-		if !schema.cdc && !schema.outbox {
-			continue
-		}
-		if entry, ok := getDirtyPublisherByEntityName(generatedEntityName(schema.tableName)); ok {
-			reg.dirtyPublishers[entry.reflectType] = withSchemaConfig(entry, schema)
-		} else if entry, ok := getDirtyPublisher(schema.t); ok {
-			reg.dirtyPublishers[entry.reflectType] = withSchemaConfig(entry, schema)
-		}
-	}
 }

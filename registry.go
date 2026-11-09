@@ -39,6 +39,7 @@ type Registry interface {
 	RegisterNatsConsumer(consumer *NatsConsumerBuilder)
 	RegisterConsumer(def ConsumerDef)
 	RegisterEntityStream(opts EntityStreamOptions)
+	RegisterCDCStream(opts CDCStreamOptions)
 	RegisterTask(task any, opts TaskOptions)
 	RegisterTaskStream(opts TaskStreamOptions)
 	EnableMetrics(factory promauto.Factory)
@@ -54,6 +55,7 @@ type registry struct {
 	natsConsumers    []*NatsConsumerBuilder
 	consumers        []ConsumerDef
 	entityStream     *EntityStreamOptions
+	cdcStream        *CDCStreamOptions
 	tasks            []*registeredTask
 	taskStream       *TaskStreamOptions
 	entities         map[string]reflect.Type
@@ -347,7 +349,7 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	resolveEntityPublishers(e)
+	resolveCDCEntities(e)
 	resolveJobRuns(e)
 	// Tasks first: a consumer declares queues, and resolveConsumers checks them
 	// against the tasks that actually exist.
@@ -357,6 +359,7 @@ func (r *registry) Validate() (Engine, error) {
 	if err := resolveConsumers(r, e); err != nil {
 		return nil, err
 	}
+	resolveCDCStream(r, e)
 	if err := resolveCDCOutbox(e); err != nil {
 		return nil, err
 	}
@@ -434,7 +437,7 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	// Consumers and tasks come from the registry, not from entity tags, so this
 	// reduced validate path has to resolve them explicitly or the generator sees
 	// none and emits nothing.
-	resolveEntityPublishers(e)
+	resolveCDCEntities(e)
 	resolveJobRuns(e)
 	if err := resolveTasks(r, e); err != nil {
 		return nil, err
@@ -442,6 +445,7 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	if err := resolveConsumers(r, e); err != nil {
 		return nil, err
 	}
+	resolveCDCStream(r, e)
 	return e, nil
 }
 

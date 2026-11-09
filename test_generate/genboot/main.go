@@ -25,7 +25,7 @@ func main() {
 	for _, task := range test_generate.FixtureTasks() {
 		registry.RegisterTask(task.Task, task.Options)
 	}
-	for _, def := range test_generate.FixtureConsumers() {
+	for _, def := range test_generate.FixtureCodegenConsumers() {
 		def.NatsPool = "nats"
 		registry.RegisterConsumer(def)
 	}

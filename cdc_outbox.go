@@ -112,8 +112,9 @@ func resolveCDCOutbox(e *engineImplementation) error {
 // Save: a context-level slice would let the first closure mark rows belonging
 // to a later Save that has not published yet.
 func (orm *ormImplementation) stageDirtyOutbox(list []*pendingWrite) ([]uint64, error) {
-	outbox := orm.engine.registry.cdcOutbox
-	if outbox == nil || len(orm.engine.registry.dirtyPublishers) == 0 {
+	reg := orm.engine.registry
+	outbox := reg.cdcOutbox
+	if outbox == nil || len(reg.cdcEntities) == 0 || reg.cdcStream.Producer == CDCProducerExternal {
 		return nil, nil
 	}
 
@@ -124,21 +125,14 @@ func (orm *ormImplementation) stageDirtyOutbox(list []*pendingWrite) ([]uint64, 
 		if eventType == 0 {
 			continue
 		}
-		et := reflect.TypeOf(w.entity)
-		if et.Kind() == reflect.Ptr {
-			et = et.Elem()
-		}
-		publisher, hasPub := orm.engine.registry.dirtyPublishers[et]
+		publisher, hasPub := reg.cdcEntityFor(w.entity)
 		if !hasPub || !publisher.outbox {
 			continue
 		}
 		op := dirtyOpFromFlushType(eventType)
-		payload, err := publisher.buildEvent(w.entity, op, nil)
+		payload, err := buildCDCPayload(publisher, w.entity, op)
 		if err != nil {
 			return nil, fmt.Errorf("build outbox payload for %s: %w", publisher.entityName, err)
-		}
-		if payload == nil {
-			continue
 		}
 		// Hand the exact bytes to the publisher so the stored row and the
 		// published message stay byte-identical, and a replay keeps its dedup id.
@@ -223,7 +217,7 @@ const cdcOutboxSelectPendingSQL = "SELECT `ID`,`EntityName`,`Op`,`Payload` FROM 
 // into a duplicate delivery instead of a no-op.
 //
 // minAge skips rows still racing the ORM's own post-commit mark, and must stay
-// well under the stream's DuplicateWindow (10m by default) so a republish is
+// well under the CDC stream's DuplicateWindow (2m by default) so a republish is
 // still deduped. Publish happens before the mark, so delivery is at-least-once:
 // a row is never recorded as delivered before it is.
 //
@@ -253,7 +247,7 @@ func RelayCDCOutbox(ctx Context, minAge time.Duration, limit int) (CDCOutboxRela
 
 	// The subject comes from the entity name, so a row needs no record of where
 	// it was going: one entity is one subject, and whoever filters it reads it.
-	poolCode := orm.engine.registry.entityStream.NatsPool
+	poolCode := orm.engine.registry.cdcStream.NatsPool
 	idsByPool := make(map[string][]uint64)
 	msgsByPool := make(map[string][]*NatsMessage)
 	for _, row := range rows {
@@ -263,7 +257,7 @@ func RelayCDCOutbox(ctx Context, minAge time.Duration, limit int) (CDCOutboxRela
 		}
 		idsByPool[poolCode] = append(idsByPool[poolCode], row.id)
 		msgsByPool[poolCode] = append(msgsByPool[poolCode],
-			newEntityMessage(subject, DirtyOp(row.op), []byte(row.payload)))
+			newEntityMessage(subject, []byte(row.payload)))
 	}
 
 	var errs []error
@@ -293,7 +287,7 @@ func RelayCDCOutbox(ctx Context, minAge time.Duration, limit int) (CDCOutboxRela
 // under, so an entity renamed or untagged since the row was written is reported
 // rather than published to a subject nothing filters.
 func outboxRowSubject(reg *engineRegistryImplementation, entityName string) (Subject, error) {
-	for _, publisher := range reg.dirtyPublishers {
+	for _, publisher := range reg.cdcEntities {
 		if publisher.entityName == entityName {
 			return publisher.subject, nil
 		}

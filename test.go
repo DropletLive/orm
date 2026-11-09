@@ -63,7 +63,7 @@ func purgeStreams(ctx Context) {
 	if err != nil {
 		return
 	}
-	for _, name := range []string{EntityStreamName, TaskStreamName} {
+	for _, name := range []string{EntityStreamName, TaskStreamName, CDCStreamName} {
 		if stream, sErr := js.Stream(ctx.Context(), name); sErr == nil && stream != nil {
 			_ = stream.Purge(ctx.Context())
 		}
@@ -88,6 +88,14 @@ func prepareTables(t *testing.T, registry Registry, mysqlOptions *MySQLOptions, 
 	registry.RegisterEntity(entities...)
 	engine, err := registry.Validate()
 	require.NoError(t, err)
+	// Each test builds its own engine; left open, their pools exhaust MySQL's connections.
+	t.Cleanup(func() {
+		for _, db := range engine.(*engineImplementation).dbServers {
+			if client, ok := db.GetDBClient().(*sql.DB); ok {
+				_ = client.Close()
+			}
+		}
+	})
 
 	orm = engine.NewContext(context.Background())
 	cacheRedis := engine.Redis(DefaultPoolCode)

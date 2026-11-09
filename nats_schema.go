@@ -230,12 +230,20 @@ func (a NatsAlter) Exec(ctx Context) error {
 
 // GetNatsAlters compares registered NATS stream/consumer definitions with the actual broker state
 // and returns the operations needed to synchronize them. Manages the ORM_ENTITY and ORM_TASK streams
-// plus streams registered with RegisterNatsStream. Only ORM_-prefixed streams are ever deleted.
+// plus streams registered with RegisterNatsStream, and creates the CDC stream when it is missing.
+// Only ORM_-prefixed streams are ever deleted.
 func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 	reg := ctx.Engine().Registry().(*engineRegistryImplementation)
 
 	desired := collectDesiredStreams(ctx, reg)
 	consumersByPool := collectDesiredConsumers(reg)
+
+	if len(reg.cdcReaderSubjects()) > 0 {
+		if desired[reg.cdcStream.NatsPool] == nil {
+			desired[reg.cdcStream.NatsPool] = make(map[string]jetstream.StreamConfig)
+		}
+		consumersByPool[reg.cdcStream.NatsPool] = append(consumersByPool[reg.cdcStream.NatsPool], reg.cdcReaderBuilder())
+	}
 
 	var alters []NatsAlter
 	for poolCode, streams := range desired {
@@ -262,6 +270,15 @@ func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 				continue
 			}
 			alters = append(alters, buildCreateStreamAlter(js, name, wanted, poolCode))
+		}
+
+		// Created when missing, never updated: once Debezium runs, its deployment
+		// owns the stream's limits and the ORM must not fight it.
+		if poolCode == reg.cdcStream.NatsPool && len(reg.cdcReaderSubjects()) > 0 {
+			if _, ok := existing[CDCStreamName]; !ok {
+				alters = append(alters, buildCreateStreamAlter(js, CDCStreamName, reg.cdcStreamConfig(), poolCode))
+			}
+			delete(existing, CDCStreamName)
 		}
 
 		ignoredSubjects := reg.natsIgnoredSubjects[poolCode]

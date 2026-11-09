@@ -48,6 +48,38 @@ type generateEntity struct {
 	JsonAddress *models.GenerateJsonAddress
 }
 
+// generateEntityParity is on the change feed with every column category,
+// so the Debezium parity test can compare the ORM's row images with Debezium's.
+type generateEntityParity struct {
+	ID                uint64 `orm:"cdc"`
+	Age               uint32
+	Balance           int8
+	AgeNullable       *uint8
+	BalanceNullable   *int8
+	Name              string `orm:"required"`
+	Comment           string
+	TestEnum          string `orm:"enum=a,b,c;required;enumName=TestEnum"`
+	TestEnumOptional  string `orm:"enum=a,b,c;enumName=TestEnum"`
+	TestSet           string `orm:"set=a,b,c;required;enumName=TestEnum"`
+	TestSetOptional   string `orm:"set=a,b,c;enumName=TestEnum"`
+	Byte              []uint8
+	Bool              bool
+	BoolNullable      *bool
+	Float             float64
+	FloatNullable     *float64
+	Price             float64    `orm:"decimal=10,2"`
+	TimeNullable      *time.Time `orm:"time"`
+	Time              time.Time  `orm:"time"`
+	DateNullable      *time.Time
+	Date              time.Time
+	ReferenceRequired orm.Reference[generateReferenceEntity] `orm:"required"`
+	ReferenceOptional orm.Reference[generateReferenceEntity]
+	Tags              orm.References[generateReferenceEntity] `orm:"required"`
+	generateSubStruct
+	JsonAddress *models.GenerateJsonAddress
+	FakeDelete  bool
+}
+
 type generateEntityNoRedis struct {
 	ID                uint64
 	Age               uint32
@@ -227,10 +259,23 @@ func FixtureConsumers() []orm.ConsumerDef {
 	}, FixtureTaskConsumers()...)
 }
 
+// FixtureParityConsumer reads generateEntityParity, which a `cdc` tag requires.
+// It is kept out of FixtureConsumers so tests that register a subset of the
+// fixtures need not register the parity entity too.
+func FixtureParityConsumer() orm.ConsumerDef {
+	return orm.ConsumerDef{Name: "test-parity", Entities: []any{generateEntityParity{}}}
+}
+
+// FixtureCodegenConsumers is every fixture consumer, for the registrations that
+// take every fixture entity.
+func FixtureCodegenConsumers() []orm.ConsumerDef {
+	return append(FixtureConsumers(), FixtureParityConsumer())
+}
+
 // FixtureEntities is the registration list shared by TestGenerate and genboot.
 func FixtureEntities() []any {
 	return []any{
-		generateEntity{}, generateEntityNoRedis{}, generateReferenceEntity{},
+		generateEntity{}, generateEntityParity{}, generateEntityNoRedis{}, generateReferenceEntity{},
 		generateEntityWithTimestamps{}, generateEntityWithTimestampsRedis{},
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
 		generateEntityCachedAll{}, generateEntityCachedAllFakeDelete{},

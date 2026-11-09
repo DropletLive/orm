@@ -386,14 +386,14 @@ func captureQueries(ctx orm.Context) *queryLog {
 	return log
 }
 
-// killStreams removes the entity stream so PublishBatch fails. restoreStreams
+// killStreams removes the change feed so PublishBatch fails. restoreStreams
 // puts it back, so this stays local to one test.
 func killStreams(t *testing.T, ctx orm.Context) {
 	t.Helper()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	assert.NoError(t, err)
-	assert.NoError(t, js.DeleteStream(ctx.Context(), orm.EntityStreamName))
+	assert.NoError(t, js.DeleteStream(ctx.Context(), orm.CDCStreamName))
 }
 
 func TestOutboxRowStaysPendingOnPublishFailure(t *testing.T) {
@@ -462,14 +462,10 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 	ctx := outboxCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
-	var delivered []byte
+	var delivered *entities.GenerateEntityOutboxDirtyEvent
 	consumer := orm.NewConsumer(ctx.Engine(), entities.ConsumerTestIndexer).
 		OnGenerateEntityOutbox(func(_ orm.Context, ev *entities.GenerateEntityOutboxDirtyEvent) error {
-			raw, marshalErr := json.Marshal(ev)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			delivered = raw
+			delivered = ev
 
 			return nil
 		}).
@@ -481,14 +477,22 @@ func TestOutboxStoresTheEventThatWasPublished(t *testing.T) {
 
 	deadline := time.Now().Add(30 * time.Second)
 	for delivered == nil && time.Now().Before(deadline) {
-		assert.NoError(t, consumer.Consume(ctx.Context(), 10, time.Second))
+		assert.NoError(t, withReader(ctx.Engine(), consumer).Consume(ctx.Context(), 10, time.Second))
 	}
 	if !assert.NotNil(t, delivered, "no event arrived on the entity subject") {
 		t.FailNow()
 	}
 
-	assert.JSONEq(t, string(delivered), stored,
+	// The envelope stamps its commit time, so equal times mean one serialisation.
+	var storedEnvelope struct {
+		Source struct {
+			TsMs int64 `json:"ts_ms"`
+		} `json:"source"`
+	}
+	assert.NoError(t, json.Unmarshal([]byte(stored), &storedEnvelope))
+	assert.Equal(t, storedEnvelope.Source.TsMs, delivered.TsMs,
 		"the outbox must hold the event consumers actually saw, not a second serialisation of it")
+	assert.Equal(t, "byte-identical", delivered.After.GetName())
 }
 
 // TestOutboxSubjectDerivesFromEntityName is what lets the row drop its Streams
@@ -514,6 +518,7 @@ func TestOutboxSubjectDerivesFromEntityName(t *testing.T) {
 	var subjects []string
 	deadline := time.Now().Add(30 * time.Second)
 	for len(subjects) == 0 && time.Now().Before(deadline) {
+		assert.NoError(t, pumpReader(ctx))
 		for _, msg := range cons.Fetch(ctx, 10, time.Second).Records() {
 			subjects = append(subjects, msg.Subject)
 			_ = msg.Ack()
@@ -521,5 +526,5 @@ func TestOutboxSubjectDerivesFromEntityName(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"orm.entity.generateEntityOutbox"}, subjects,
-		"the relayed row must land on the entity's own subject, exactly once")
+		"the relayed row must reach the entity's own subject through the reader, exactly once")
 }

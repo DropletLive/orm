@@ -197,6 +197,8 @@ type scanIDsTestRows struct {
 	err     error
 }
 
+func (r *scanIDsTestRows) Err() error { return nil }
+
 func (r *scanIDsTestRows) Next() bool {
 	if r.next >= len(r.sources) {
 		return false

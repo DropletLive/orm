@@ -55,6 +55,9 @@ func ScanIDs(rows Rows, ids []uint64) ([]uint64, error) {
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return ids, nil
 }
 

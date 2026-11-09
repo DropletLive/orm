@@ -3,7 +3,6 @@ package orm
 import (
 	"errors"
 	"fmt"
-	"reflect"
 )
 
 // ErrEntityNeedsRegeneration rejects generated code without transactional state
@@ -266,26 +265,23 @@ func (orm *ormImplementation) discardWriteQueues() {
 	}
 }
 
-// publishDirtyFor reads each frozen write's pre-change origin and change set.
+// publishDirtyFor puts each write on the change feed, unless Debezium owns it.
 func (orm *ormImplementation) publishDirtyFor(list []*pendingWrite) error {
-	if len(orm.engine.registry.dirtyPublishers) == 0 {
+	reg := orm.engine.registry
+	if len(reg.cdcEntities) == 0 || reg.cdcStream.Producer == CDCProducerExternal {
 		return nil
 	}
 	pending := make(pendingDirtyMessages)
 	for _, w := range list {
-		eventType, changes := w.entity.PrivateFlushEvent()
+		eventType, _ := w.entity.PrivateFlushEvent()
 		if eventType == 0 {
 			continue
 		}
-		et := reflect.TypeOf(w.entity)
-		if et.Kind() == reflect.Ptr {
-			et = et.Elem()
-		}
-		publisher, hasPub := orm.engine.registry.dirtyPublishers[et]
-		if !hasPub {
+		entry, ok := reg.cdcEntityFor(w.entity)
+		if !ok || !entry.cdc {
 			continue
 		}
-		if err := buildDirtyEvent(orm, pending, publisher, w, dirtyOpFromFlushType(eventType), changes); err != nil {
+		if err := buildDirtyEvent(orm, pending, entry, w, dirtyOpFromFlushType(eventType)); err != nil {
 			return err
 		}
 	}

@@ -49,7 +49,8 @@ type engineRegistryImplementation struct {
 	natsIgnoredConsumers    map[string]map[string]bool
 	entityStream            EntityStreamOptions
 	consumers               map[ConsumerName]*resolvedConsumer
-	dirtyPublishers         map[reflect.Type]*dirtyPublisherEntry
+	cdcEntities             map[reflect.Type]*cdcEntityEntry
+	cdcStream               CDCStreamOptions
 	cdcOutbox               *resolvedCDCOutbox
 	jobRuns                 *resolvedJobRuns
 	taskStream              TaskStreamOptions

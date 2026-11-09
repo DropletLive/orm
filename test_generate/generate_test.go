@@ -25,7 +25,7 @@ import (
 func TestGenerate(t *testing.T) {
 	registry := FixtureRegistry()
 
-	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(), FixtureEntities()...)
+	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureCodegenConsumers(), FixtureEntities()...)
 	defer ctx.Engine().Nats("nats").Close()
 	_ = os.MkdirAll("entities", 0755)
 
@@ -835,8 +835,8 @@ func TestGenerate(t *testing.T) {
 	_, isRedisCache := entityProvider.(orm.RedisCacheEntityProvider)
 	assert.False(t, isRedisCache)
 
-	// AllProviders: correct length (18 entities)
-	assert.Len(t, entities.AllProviders, 18)
+	// AllProviders: correct length (19 entities)
+	assert.Len(t, entities.AllProviders, 19)
 
 	// AllProviders: all entries implement EntityProvider and have non-empty TableName
 	for _, p := range entities.AllProviders {
@@ -848,7 +848,7 @@ func TestGenerate(t *testing.T) {
 	// job drains each consumer, and drive its own metadata off the declaration.
 	// Entity consumers and task consumers are one list, because they are one
 	// concept - what differs is which stream they filter.
-	assert.Len(t, entities.AllConsumers, 5)
+	assert.Len(t, entities.AllConsumers, 6)
 	for _, c := range entities.AllConsumers {
 		assert.NotEmpty(t, c.Name())
 		assert.NotEmpty(t, c.Subjects())

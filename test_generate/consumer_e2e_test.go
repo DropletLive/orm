@@ -13,7 +13,6 @@ package test_generate
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -65,8 +64,8 @@ func TestOneWriteIsOneMessageHoweverManyConsumers(t *testing.T) {
 		"one write must publish one batch of exactly one message, whatever number of consumers declare the entity")
 
 	require.Eventually(t, func() bool {
-		return entityStreamMessages(t, ctx) > before
-	}, 30*time.Second, 200*time.Millisecond, "no message reached the entity stream")
+		return pumpReader(ctx) == nil && entityStreamMessages(t, ctx) > before
+	}, 30*time.Second, 200*time.Millisecond, "the reader never forwarded the change to the entity stream")
 
 	assert.Equal(t, before+1, entityStreamMessages(t, ctx), "and the stream stores that one message")
 
@@ -141,6 +140,7 @@ func TestMultiSubjectConsumerReceivesAllItsEntities(t *testing.T) {
 			return nil
 		}).
 		Build()
+	consumer = withReader(ctx.Engine(), consumer)
 
 	a := entities.GenerateEntityDirtyProvider.New(ctx)
 	a.SetName("multi-a")
@@ -167,25 +167,26 @@ func TestCDCSyncPath(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 	entityID := e.GetID()
 
-	insertEvent := pollEvent(t, ctx, entities.ConsumerTestIndexer.Name(), entityID, orm.DirtyInsert, 30*time.Second)
+	insertEvent := pollEvent(t, ctx, entityID, orm.DirtyInsert, 30*time.Second)
 	require.NotNil(t, insertEvent, "no INSERT event received")
 	assert.Nil(t, insertEvent.Before, "insert.Before should be nil")
 	require.NotNil(t, insertEvent.After, "insert.After should be populated")
-	assert.Equal(t, "cdc-insert", (*insertEvent.After)["Name"])
+	assert.Equal(t, "cdc-insert", insertEvent.After.GetName())
 
 	e.SetName("cdc-updated")
 	e.SetAge(30)
 	assert.NoError(t, ctx.Save(e))
 
-	updateEvent := pollEvent(t, ctx, entities.ConsumerTestIndexer.Name(), entityID, orm.DirtyUpdate, 30*time.Second)
+	updateEvent := pollEvent(t, ctx, entityID, orm.DirtyUpdate, 30*time.Second)
 	require.NotNil(t, updateEvent, "no UPDATE event received")
 	assert.NotNil(t, updateEvent.Before, "update.Before should be populated")
 	require.NotNil(t, updateEvent.After, "update.After should be populated")
-	assert.Equal(t, "cdc-updated", (*updateEvent.After)["Name"])
+	assert.Equal(t, "cdc-updated", updateEvent.After.GetName())
+	assert.Equal(t, "cdc-insert", updateEvent.Before.GetName())
 
 	assert.NoError(t, ctx.Delete(e))
 
-	deleteEvent := pollEvent(t, ctx, entities.ConsumerTestIndexer.Name(), entityID, orm.DirtyDelete, 30*time.Second)
+	deleteEvent := pollEvent(t, ctx, entityID, orm.DirtyDelete, 30*time.Second)
 	require.NotNil(t, deleteEvent, "no DELETE event received")
 	assert.NotNil(t, deleteEvent.Before, "delete.Before should be populated")
 	assert.Nil(t, deleteEvent.After, "delete.After should be nil")
@@ -206,6 +207,7 @@ func TestCDCWatchFields(t *testing.T) {
 			return nil
 		}, orm.WatchFields(entities.GenerateEntityDirtyProvider.Fields.Age)).
 		Build()
+	consumer = withReader(ctx.Engine(), consumer)
 
 	drain := func(expected int32, deadline time.Duration) int32 {
 		end := time.Now().Add(deadline)
@@ -261,6 +263,7 @@ func TestCDCBatchDispatch(t *testing.T) {
 			return nil
 		}).
 		Build()
+	consumer = withReader(ctx.Engine(), consumer)
 
 	// One flush, many entities of two types -> one publish batch, and on the
 	// consumer side one handler call per entity.
@@ -303,6 +306,7 @@ func TestCDCBatchDispatchErrorRedelivers(t *testing.T) {
 			return nil
 		}).
 		Build()
+	consumer = withReader(ctx.Engine(), consumer)
 
 	const count = 3
 	rows := make([]orm.Entity, 0, count)
@@ -385,57 +389,24 @@ func drainConsumer(t *testing.T, ctx orm.Context, name orm.ConsumerName) {
 	}
 }
 
-// pollEvent fetches from a consumer's durable until it finds an event matching
-// the given entity ID and operation, or times out. Acks every message it
-// inspects so the test isn't affected by leftover state.
-func pollEvent(
-	t *testing.T, ctx orm.Context, name orm.ConsumerName,
-	entityID uint64, op orm.DirtyOp, deadline time.Duration,
-) *entities.GenerateEntityDirtyDirtyEvent {
+// pollEvent pumps the reader and the test indexer until the indexer receives
+// an event matching the given entity ID and operation, or times out.
+func pollEvent(t *testing.T, ctx orm.Context, entityID uint64, op orm.DirtyOp, deadline time.Duration) *entities.GenerateEntityDirtyDirtyEvent {
 	t.Helper()
-	cons, err := ctx.Engine().Nats("nats").Consumer(string(name))
-	if err != nil {
-		t.Fatalf("get consumer %s: %v", name, err)
-	}
-	defer cons.Close()
-
-	timeoutAt := time.After(deadline)
-	for {
-		pollCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		batch := cons.Fetch(ctx.Engine().NewContext(pollCtx), 16, 3*time.Second)
-		cancel()
-		for _, msg := range batch.Records() {
-			ev := &entities.GenerateEntityDirtyDirtyEvent{}
-			if msg.Data == nil || json.Unmarshal(msg.Data, ev) != nil {
-				_ = msg.Ack()
-
-				continue
-			}
-			_ = msg.Ack()
+	var found *entities.GenerateEntityDirtyDirtyEvent
+	consumer := withReader(ctx.Engine(), orm.NewConsumer(ctx.Engine(), entities.ConsumerTestIndexer).
+		OnGenerateEntityDirty(func(_ orm.Context, ev *entities.GenerateEntityDirtyDirtyEvent) error {
 			if ev.Op == op && ev.ID == entityID {
-				return ev
+				found = ev
 			}
-		}
-		select {
-		case <-timeoutAt:
-			t.Fatalf("timeout waiting for op=%s id=%d on consumer %s", op, entityID, name)
 
 			return nil
-		default:
-		}
+		}).
+		Build())
+	drainUntil(t, consumer, func() bool { return found != nil }, deadline)
+	if found == nil {
+		t.Fatalf("timeout waiting for op=%s id=%d", op, entityID)
 	}
-}
 
-// drainUntil pumps the consumer until done() reports true or the deadline passes.
-func drainUntil(t *testing.T, consumer orm.StreamConsumer, done func() bool, deadline time.Duration) {
-	t.Helper()
-	end := time.Now().Add(deadline)
-	for time.Now().Before(end) {
-		if done() {
-			return
-		}
-		pumpCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = consumer.Consume(pumpCtx, 32, 1*time.Second)
-		cancel()
-	}
+	return found
 }
