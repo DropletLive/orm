@@ -8,6 +8,7 @@ import (
 	"github.com/DropletLive/orm"
 	"github.com/DropletLive/orm/test_generate/entities"
 	"github.com/DropletLive/orm/test_generate/entities/enums"
+	"github.com/DropletLive/orm/test_generate/entities/esfields"
 	"github.com/DropletLive/orm/test_generate/models"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,6 +32,10 @@ func TestGenerate(t *testing.T) {
 
 	err := orm.Generate(ctx.Engine(), "entities")
 	assert.NoError(t, err)
+
+	assert.Equal(t, "name", esfields.SearchFixtureFields.Name.FieldName())
+	assert.Equal(t, "test_enum", esfields.SearchFixtureFields.TestEnum.FieldName())
+	assert.Equal(t, map[string]any{"type": "long"}, esfields.SearchFixtureProperties["tags"])
 
 	e := entities.GenerateEntityProvider.New(ctx)
 	assert.NotEmpty(t, e.GetID())

@@ -290,11 +290,26 @@ func FixtureEntities() []any {
 // tasks is a startup error, so the two always travel together.
 func FixtureRegistry() orm.Registry {
 	registry := orm.NewRegistry()
+	registry.RegisterElasticsearchDocument(FixtureElasticsearchDocuments()...)
 	for _, task := range FixtureTasks() {
 		registry.RegisterTask(task.Task, task.Options)
 	}
 
 	return registry
+}
+
+// SearchFixtureDocument makes the generator emit esfields, so the release
+// workflow compiles the elasticsearch fields and their enum import.
+type SearchFixtureDocument struct {
+	ID       uint64    `json:"id"`
+	Name     string    `json:"name" es:"text,analyzer:standard"`
+	TestEnum string    `json:"test_enum" es:"enum:enums.TestEnum"`
+	Tags     []uint64  `json:"tags"`
+	Created  time.Time `json:"created"`
+}
+
+func FixtureElasticsearchDocuments() []any {
+	return []any{&SearchFixtureDocument{}}
 }
 
 // FixtureTasks are the tasks the generator emits dispatch functions and

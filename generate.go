@@ -116,6 +116,11 @@ func Generate(engine Engine, outputDirectory string) error {
 		return err
 	}
 
+	err = generator.generateElasticsearchDocuments(engine.Registry().(*engineRegistryImplementation).elasticsearchDocuments)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -22,6 +22,7 @@ func main() {
 	registry.RegisterEntityStream(orm.EntityStreamOptions{NatsPool: "nats"})
 	registry.RegisterTaskStream(orm.TaskStreamOptions{NatsPool: "nats"})
 	registry.RegisterEntity(test_generate.FixtureEntities()...)
+	registry.RegisterElasticsearchDocument(test_generate.FixtureElasticsearchDocuments()...)
 	for _, task := range test_generate.FixtureTasks() {
 		registry.RegisterTask(task.Task, task.Options)
 	}

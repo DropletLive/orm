@@ -59,6 +59,7 @@ type engineRegistryImplementation struct {
 	tasksByQueue            map[Queue][]*taskSchema
 	hasMetrics              bool
 	metricsRegistry         *metricsRegistry
+	elasticsearchDocuments  []*elasticsearchDocumentSchema
 }
 
 type engineImplementation struct {

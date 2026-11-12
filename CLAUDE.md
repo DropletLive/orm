@@ -96,12 +96,31 @@ Entity registration: `registry.RegisterEntity(&MyEntity{})`, then call `registry
 - `generate_providers.go` — `providers.go` with `AllProviders`
 - `generate_cdc.go` — per-entity change-feed block: `XxxDirtyEvent`, the column codec (`xxxCDCColumns`, `cdcFields`), `PrivateCDCRow`/`PrivateCDCChange`/`PrivateColumnValue`, the row decoder, and `RegisterCDCEntity`
 - `generate_consumer.go` — `consumers.go` and one `<name>_consumer.go` per declared consumer (only when consumers/tasks are registered)
+- `generate_elasticsearch.go` — `<outputDirectory>/esfields/<snake_name>.go` per registered Elasticsearch document (see Elasticsearch Documents)
 
 **Generated output structure (per entity):**
 
 - **`XxxSQLRow` struct** — flat struct with fields `F0`, `F1`, `F2`... for reflection-free `Scan()`
 - **`XxxProvider` singleton** — holds static metadata (tableName, dbCode, redisCode, cacheIndex, redisCachePrefix, stamp, TTL, and `redisAllKey` when the entity is tagged `cached`) and exposes all query methods. `cacheIndex` is the fully qualified entity type name as a string (e.g. `"app/entities.User"`); it keys `afterInsertHandlers`/`afterUpdateHandlers`/`afterDeleteHandlers` and `ormImplementation.cachedEntities`. Using the type name keeps the value stable across registrations and self-documenting in payloads and logs.
 - **`XxxEntity` struct** — user-facing entity; holds `ctx`, `id`, `new`, `deleted`, `removed` (hard-delete tombstone), `snapshot` (read-only callback view), `originDatabaseValues` (SQLRow)
+
+### Elasticsearch Documents
+
+`registry.RegisterElasticsearchDocument(&app.ProductDocument{}, ...)` registers the struct an Elasticsearch index stores. Nothing at runtime uses it; it exists for codegen. `Validate()`/`ValidateForCodeGen()` read each document by reflection (`elasticsearch_document.go`): the type name must end in `Document`, and its prefix (`Product`) names the generated vars. A field is indexed under its `json` name (no name or `json:"-"` skips it; embedded and unexported fields are skipped). The `es:"..."` tag is a comma list:
+
+- `-` — skip the field
+- `text` / `keyword` / `float` — force the mapping type
+- `nested` — a slice of structs mapped as `nested`; `object` — a struct mapped as `object`. A struct or pointer-to-struct field (other than `time.Time`) without a kind is an `object`
+- `enum:enums.Name` — keyword field typed `EnumField[enums.Name]`, importing the generated `enums` package next to the output directory. Only the `enums.` prefix is accepted
+- `analyzer:x`, `search_analyzer:x` — on a text field; an `analyzer` also adds a `keyword` sub-field
+- `autocomplete:x`, `ac_search:y` — adds an `autocomplete` text sub-field (`ac_search` defaults to the field's analyzer)
+- `sub:name:analyzer:search_analyzer` — adds a text sub-field (repeatable)
+
+An unknown option is a validation error. Without a kind, the Go type decides: `uint64` → `UintField`/`long`, `int` → `IntField`/`integer`, `int64` → `IntField`/`long`, `bool` → `BoolField`/`boolean`, `float64` → `FloatField`/`float`, `time.Time` → `DateField`/`date`, anything else → `StringField`/`keyword`. Slices and pointers map as their element.
+
+`Generate` wipes and rewrites `<outputDirectory>/esfields/` (package `esfields`), one file per document holding `XxxFields` (typed field names, dotted for objects/nested, from the `elasticsearch` subpackage) and `XxxProperties` (the `mappings.properties` map). Index settings and analyzers stay with the caller.
+
+The `elasticsearch` subpackage (`github.com/DropletLive/orm/elasticsearch`) holds what the generated code and its callers use: the typed fields and `Condition` builders (`condition.go`), `QueryBuilder` (`request.go`), response parsing (`response.go`, `num.go`), `Pager`/`SortOption`, `Config` and the `Client` over `go-elasticsearch/v9`. The client records `droplet_elasticsearch_*` Prometheus metrics on the default registry (`prometheus.go`); the names are kept for existing dashboards.
 
 ### Caching (Two Tiers)
 
@@ -262,7 +281,7 @@ This module is `github.com/latolukasz/fluxaorm/v2` v2.4.4 renamed, plus the comm
 ### Test Fixtures
 
 `test_generate/` contains:
-- `fixtures.go` — entity structs, `ConsumerDef`s and task fixtures used as generator input (`FixtureEntities`, `FixtureConsumers`, `FixtureTasks`, `FixtureTaskConsumers`, `FixtureRegistry`). They live outside `_test.go` so the generator can be re-run without compiling the test binary
+- `fixtures.go` — entity structs, `ConsumerDef`s, task fixtures and the `SearchFixtureDocument` Elasticsearch document used as generator input (`FixtureEntities`, `FixtureConsumers`, `FixtureTasks`, `FixtureTaskConsumers`, `FixtureElasticsearchDocuments`, `FixtureRegistry`). They live outside `_test.go` so the generator can be re-run without compiling the test binary
 - `models/` — JSON struct types referenced by fixture fields
 - `genboot/main.go` — `go run ./test_generate/genboot` validates the fixtures against the local services, applies the alters and regenerates `test_generate/entities/`
 - `entities/` — generated output, **git-ignored** (`.gitignore`); regenerate it with `genboot` before running the `test_generate` tests

@@ -42,25 +42,27 @@ type Registry interface {
 	RegisterCDCStream(opts CDCStreamOptions)
 	RegisterTask(task any, opts TaskOptions)
 	RegisterTaskStream(opts TaskStreamOptions)
+	RegisterElasticsearchDocument(document ...any)
 	EnableMetrics(factory promauto.Factory)
 }
 
 type registry struct {
-	mysqlPools       map[string]MySQLConfig
-	redisPools       map[string]RedisPoolConfig
-	clickhousePools  map[string]ClickhouseConfig
-	clickhouseTables []*ClickhouseTableBuilder
-	natsPools        map[string]*natsPoolConfig
-	natsStreams      []*NatsStreamBuilder
-	natsConsumers    []*NatsConsumerBuilder
-	consumers        []ConsumerDef
-	entityStream     *EntityStreamOptions
-	cdcStream        *CDCStreamOptions
-	tasks            []*registeredTask
-	taskStream       *TaskStreamOptions
-	entities         map[string]reflect.Type
-	options          map[string]any
-	metricsFactory   *promauto.Factory
+	mysqlPools             map[string]MySQLConfig
+	redisPools             map[string]RedisPoolConfig
+	clickhousePools        map[string]ClickhouseConfig
+	clickhouseTables       []*ClickhouseTableBuilder
+	natsPools              map[string]*natsPoolConfig
+	natsStreams            []*NatsStreamBuilder
+	natsConsumers          []*NatsConsumerBuilder
+	consumers              []ConsumerDef
+	entityStream           *EntityStreamOptions
+	cdcStream              *CDCStreamOptions
+	tasks                  []*registeredTask
+	taskStream             *TaskStreamOptions
+	entities               map[string]reflect.Type
+	elasticsearchDocuments []reflect.Type
+	options                map[string]any
+	metricsFactory         *promauto.Factory
 }
 
 func NewRegistry() Registry {
@@ -363,6 +365,9 @@ func (r *registry) Validate() (Engine, error) {
 	if err := resolveCDCOutbox(e); err != nil {
 		return nil, err
 	}
+	if err := resolveElasticsearchDocuments(r, e); err != nil {
+		return nil, err
+	}
 	if e.registry.hasMetrics {
 		e.registry.metricsRegistry = initMetricsRegistry(*r.metricsFactory)
 	}
@@ -446,6 +451,9 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 		return nil, err
 	}
 	resolveCDCStream(r, e)
+	if err := resolveElasticsearchDocuments(r, e); err != nil {
+		return nil, err
+	}
 	return e, nil
 }
 
