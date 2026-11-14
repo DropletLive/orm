@@ -214,15 +214,17 @@ func buildNatsConnectOpts(cfg *natsPoolConfig) []nats.Option {
 	return opts
 }
 
-// initProducer lazily creates the NATS connection and JetStream context on first use.
-// Retries on subsequent calls if the previous attempt failed (transient outage).
-// Thread-safe: concurrent callers serialize on producerMu.
-func (p *natsPoolImplementation) initProducer() error {
+// connection returns the pool's NATS connection and JetStream context, creating them on first use.
+// A connection that is reconnecting is kept: nats.go reconnects it by itself, and closing it would
+// strand every JetStream handle made from it (a consumer's Fetch then fails with "connection closed"
+// for good). Only a closed connection is replaced. Callers use the returned values, never p.nc/p.js,
+// which another goroutine may replace. Thread-safe: callers serialize on producerMu.
+func (p *natsPoolImplementation) connection() (*nats.Conn, jetstream.JetStream, error) {
 	p.producerMu.Lock()
 	defer p.producerMu.Unlock()
 
-	if p.nc != nil && p.nc.Status() == nats.CONNECTED && p.js != nil {
-		return nil
+	if p.nc != nil && !p.nc.IsClosed() && p.js != nil {
+		return p.nc, p.js, nil
 	}
 	if p.nc != nil {
 		p.nc.Close()
@@ -237,26 +239,27 @@ func (p *natsPoolImplementation) initProducer() error {
 		}
 	}
 	if len(urls) == 0 {
-		return fmt.Errorf("nats pool '%s': no urls configured", p.config.code)
+		return nil, nil, fmt.Errorf("nats pool '%s': no urls configured", p.config.code)
 	}
 	url := strings.Join(urls, ",")
 	nc, err := nats.Connect(url, buildNatsConnectOpts(p.config)...)
 	if err != nil {
-		return fmt.Errorf("nats pool '%s': failed to connect to any of %d urls: %w", p.config.code, len(urls), err)
+		return nil, nil, fmt.Errorf("nats pool '%s': failed to connect to any of %d urls: %w", p.config.code, len(urls), err)
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
-		return fmt.Errorf("nats pool '%s': failed to create JetStream context: %w", p.config.code, err)
+		return nil, nil, fmt.Errorf("nats pool '%s': failed to create JetStream context: %w", p.config.code, err)
 	}
 
 	p.nc = nc
 	p.js = js
-	return nil
+	return nc, js, nil
 }
 
 func (p *natsPoolImplementation) Ping() error {
-	return p.initProducer()
+	_, _, err := p.connection()
+	return err
 }
 
 func (p *natsPoolImplementation) GetCode() string {
@@ -272,28 +275,25 @@ func (p *natsPoolImplementation) GetPoolOptions() *NatsPoolOptions {
 }
 
 func (p *natsPoolImplementation) GetJetStream() (jetstream.JetStream, error) {
-	if err := p.initProducer(); err != nil {
-		return nil, err
-	}
-	return p.js, nil
+	_, js, err := p.connection()
+	return js, err
 }
 
 func (p *natsPoolImplementation) GetConn() (*nats.Conn, error) {
-	if err := p.initProducer(); err != nil {
-		return nil, err
-	}
-	return p.nc, nil
+	nc, _, err := p.connection()
+	return nc, err
 }
 
 func (p *natsPoolImplementation) Publish(ctx Context, msg *NatsMessage) error {
-	if err := p.initProducer(); err != nil {
+	_, js, err := p.connection()
+	if err != nil {
 		return err
 	}
 	hasLogger, _ := ctx.getNatsLoggers()
 	start := time.Now()
 
 	natsMsg := &nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Headers}
-	_, err := p.js.PublishMsg(ctx.Context(), natsMsg)
+	_, err = js.PublishMsg(ctx.Context(), natsMsg)
 
 	duration := time.Since(start)
 	if hasLogger {
@@ -306,14 +306,15 @@ func (p *natsPoolImplementation) Publish(ctx Context, msg *NatsMessage) error {
 // PublishWithAck is Publish plus the server's ack, for callers that must
 // distinguish a stored message from one the stream deduplicated away.
 func (p *natsPoolImplementation) PublishWithAck(ctx Context, msg *NatsMessage) (NatsPubAck, error) {
-	if err := p.initProducer(); err != nil {
+	_, js, err := p.connection()
+	if err != nil {
 		return NatsPubAck{}, err
 	}
 	hasLogger, _ := ctx.getNatsLoggers()
 	start := time.Now()
 
 	natsMsg := &nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Headers}
-	ack, err := p.js.PublishMsg(ctx.Context(), natsMsg)
+	ack, err := js.PublishMsg(ctx.Context(), natsMsg)
 
 	duration := time.Since(start)
 	if hasLogger {
@@ -334,17 +335,17 @@ func (p *natsPoolImplementation) PublishBatch(ctx Context, msgs []*NatsMessage) 
 	if len(msgs) == 0 {
 		return nil
 	}
-	if err := p.initProducer(); err != nil {
+	_, js, err := p.connection()
+	if err != nil {
 		return err
 	}
 	hasLogger, _ := ctx.getNatsLoggers()
 	start := time.Now()
 
 	futures := make([]jetstream.PubAckFuture, 0, len(msgs))
-	var err error
 	for _, msg := range msgs {
 		natsMsg := &nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Headers}
-		future, publishErr := p.js.PublishMsgAsync(natsMsg)
+		future, publishErr := js.PublishMsgAsync(natsMsg)
 		if publishErr != nil {
 			err = publishErr
 			break
@@ -377,7 +378,8 @@ func (p *natsPoolImplementation) PublishBatch(ctx Context, msgs []*NatsMessage) 
 }
 
 func (p *natsPoolImplementation) PublishAsync(ctx Context, msg *NatsMessage, callback func(*NatsMessage, error)) {
-	if err := p.initProducer(); err != nil {
+	_, js, err := p.connection()
+	if err != nil {
 		if callback != nil {
 			callback(nil, err)
 		}
@@ -387,7 +389,7 @@ func (p *natsPoolImplementation) PublishAsync(ctx Context, msg *NatsMessage, cal
 	start := time.Now()
 
 	natsMsg := &nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Headers}
-	future, err := p.js.PublishMsgAsync(natsMsg)
+	future, err := js.PublishMsgAsync(natsMsg)
 	if err != nil {
 		duration := time.Since(start)
 		if hasLogger {
@@ -422,13 +424,13 @@ func (p *natsPoolImplementation) Consumer(name string) (NatsConsumer, error) {
 	if !ok {
 		return nil, fmt.Errorf("nats pool '%s': consumer '%s' not registered", p.config.code, name)
 	}
-	if err := p.initProducer(); err != nil {
+	if _, _, err := p.connection(); err != nil {
 		return nil, err
 	}
 	return &natsConsumerImplementation{
+		pool:     p,
 		poolCode: p.config.code,
 		settings: settings,
-		js:       p.js,
 	}, nil
 }
 
@@ -471,6 +473,8 @@ func (p *natsPoolImplementation) fillLogFields(ctx Context, operation, message s
 }
 
 func (p *natsPoolImplementation) Close() {
+	p.producerMu.Lock()
+	defer p.producerMu.Unlock()
 	if p.nc != nil {
 		p.nc.Close()
 		p.nc = nil
@@ -479,11 +483,13 @@ func (p *natsPoolImplementation) Close() {
 }
 
 type natsConsumerImplementation struct {
+	pool     *natsPoolImplementation
 	poolCode string
 	settings *NatsConsumerSettings
+	mu       sync.Mutex
+	// js is the context consumer was resolved on; a pool that replaced its closed connection hands out another.
 	js       jetstream.JetStream
 	consumer jetstream.Consumer
-	mu       sync.Mutex
 }
 
 func (c *natsConsumerImplementation) GetName() string {
@@ -495,13 +501,19 @@ func (c *natsConsumerImplementation) GetSettings() *NatsConsumerSettings {
 }
 
 func (c *natsConsumerImplementation) resolveConsumer(ctx Context) (jetstream.Consumer, error) {
+	_, js, err := c.pool.connection()
+	if err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.consumer != nil {
+	if c.consumer != nil && c.js == js {
 		return c.consumer, nil
 	}
+	c.js = js
+	c.consumer = nil
 	if c.settings.Stream != "" {
-		cons, err := c.js.Consumer(ctx.Context(), c.settings.Stream, c.settings.Name)
+		cons, err := js.Consumer(ctx.Context(), c.settings.Stream, c.settings.Name)
 		if err != nil {
 			return nil, fmt.Errorf("nats pool '%s': durable consumer '%s' on stream '%s': %w", c.poolCode, c.settings.Name, c.settings.Stream, err)
 		}
@@ -511,7 +523,7 @@ func (c *natsConsumerImplementation) resolveConsumer(ctx Context) (jetstream.Con
 	// Drain the entire stream lister before consulting Err() — the jetstream lister
 	// writes to its error field from a background goroutine, so an early break would race.
 	var streamNames []string
-	streams := c.js.ListStreams(ctx.Context())
+	streams := js.ListStreams(ctx.Context())
 	for info := range streams.Info() {
 		if info == nil {
 			continue
@@ -522,7 +534,7 @@ func (c *natsConsumerImplementation) resolveConsumer(ctx Context) (jetstream.Con
 		return nil, err
 	}
 	for _, name := range streamNames {
-		cons, err := c.js.Consumer(ctx.Context(), name, c.settings.Name)
+		cons, err := js.Consumer(ctx.Context(), name, c.settings.Name)
 		if err == nil {
 			c.consumer = cons
 			return cons, nil
