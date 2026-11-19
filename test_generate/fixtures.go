@@ -51,7 +51,7 @@ type generateEntity struct {
 // generateEntityParity is on the change feed with every column category,
 // so the Debezium parity test can compare the ORM's row images with Debezium's.
 type generateEntityParity struct {
-	ID                uint64 `orm:"cdc"`
+	ID                uint64
 	Age               uint32
 	Balance           int8
 	AgeNullable       *uint8
@@ -178,7 +178,7 @@ type generateEntityEnumRef struct {
 // generateEntityDirty is the CDC test entity. Two consumers declare it, which
 // is the case that used to publish two copies of every write.
 type generateEntityDirty struct {
-	ID   uint64 `orm:"cdc"`
+	ID   uint64
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
@@ -186,20 +186,20 @@ type generateEntityDirty struct {
 // generateEntityDirtyB shares a consumer with generateEntityDirty so the
 // group-by-subject batching has more than one group to split.
 type generateEntityDirtyB struct {
-	ID    uint64 `orm:"cdc"`
+	ID    uint64
 	Label string `orm:"required;length=100"`
 }
 
 // generateEntityOutbox is cdc + outbox: durable delivery. Its relayed row has
 // to reach the same subject the inline publish would have used.
 type generateEntityOutbox struct {
-	ID   uint64 `orm:"cdc;outbox"`
+	ID   uint64 `orm:"outbox"`
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
 
-// generateEntityStoreOnly is outbox without cdc: a transactional change log
-// with no subject to publish to.
+// generateEntityStoreOnly is outbox with no consumer: a transactional change
+// log with no subject to publish to.
 type generateEntityStoreOnly struct {
 	ID   uint64 `orm:"outbox"`
 	Name string `orm:"required;length=100"`
@@ -259,8 +259,7 @@ func FixtureConsumers() []orm.ConsumerDef {
 	}, FixtureTaskConsumers()...)
 }
 
-// FixtureParityConsumer reads generateEntityParity, which a `cdc` tag requires.
-// It is kept out of FixtureConsumers so tests that register a subset of the
+// FixtureParityConsumer puts generateEntityParity on the change feed. It is kept out of FixtureConsumers so tests that register a subset of the
 // fixtures need not register the parity entity too.
 func FixtureParityConsumer() orm.ConsumerDef {
 	return orm.ConsumerDef{Name: "test-parity", Entities: []any{generateEntityParity{}}}

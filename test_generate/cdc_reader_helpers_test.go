@@ -17,7 +17,7 @@ type throughReader struct {
 }
 
 func withReader(engine orm.Engine, consumer orm.StreamConsumer) orm.StreamConsumer {
-	return throughReader{reader: orm.NewCDCReader(engine), consumer: consumer}
+	return throughReader{reader: orm.NewCDCReader(engine, orm.DispatchCDC), consumer: consumer}
 }
 
 func (p throughReader) Consume(ctx context.Context, batch int, timeout time.Duration) error {
@@ -31,7 +31,7 @@ func (p throughReader) Consume(ctx context.Context, batch int, timeout time.Dura
 // pumpReader runs the reader alone, for tests that watch the entity stream
 // rather than a consumer.
 func pumpReader(ctx orm.Context) error {
-	return orm.NewCDCReader(ctx.Engine()).Consume(ctx.Context(), 64, 300*time.Millisecond)
+	return orm.NewCDCReader(ctx.Engine(), orm.DispatchCDC).Consume(ctx.Context(), 64, 300*time.Millisecond)
 }
 
 // drainUntil pumps the consumer until done() reports true or the deadline passes.

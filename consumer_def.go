@@ -26,8 +26,8 @@ type ConsumerDef struct {
 	Name ConsumerName
 
 	// Entities are the entity structs whose changes this consumer wants, given
-	// as the same values passed to RegisterEntity. Every one must be tagged
-	// `orm:"cdc"`.
+	// as the same values passed to RegisterEntity. Declaring one puts it on the
+	// change feed.
 	//
 	// Mutually exclusive with Queues: a JetStream consumer belongs to one
 	// stream, and entity changes and tasks are on different ones.
@@ -159,7 +159,6 @@ func resolveConsumers(r *registry, e *engineImplementation) error {
 		schemaByType[t] = schema
 	}
 
-	consumedEntities := make(map[string]bool)
 	drainedQueues := make(map[Queue]ConsumerName)
 
 	for _, def := range r.consumers {
@@ -190,7 +189,7 @@ func resolveConsumers(r *registry, e *engineImplementation) error {
 		if len(def.Queues) > 0 {
 			err = resolveTaskConsumer(reg, resolved, def, drainedQueues)
 		} else {
-			err = resolveEntityConsumer(schemaByType, resolved, def, consumedEntities)
+			err = resolveEntityConsumer(schemaByType, resolved, def)
 		}
 		if err != nil {
 			return err
@@ -200,16 +199,12 @@ func resolveConsumers(r *registry, e *engineImplementation) error {
 		seedConsumerSettings(r, resolved)
 	}
 
-	if err := checkEveryQueueIsDrained(reg, drainedQueues); err != nil {
-		return err
-	}
-
-	return checkEveryCdcEntityIsConsumed(reg, consumedEntities)
+	return checkEveryQueueIsDrained(reg, drainedQueues)
 }
 
 func resolveEntityConsumer(
 	schemaByType map[reflect.Type]*entitySchema, resolved *resolvedConsumer,
-	def ConsumerDef, consumed map[string]bool,
+	def ConsumerDef,
 ) error {
 	resolved.stream = EntityStreamName
 
@@ -225,7 +220,7 @@ func resolveEntityConsumer(
 				def.Name, schema.tableName)
 		}
 		seen[schema.tableName] = true
-		consumed[schema.tableName] = true
+		schema.cdc = true
 		resolved.entities = append(resolved.entities, schema)
 	}
 
@@ -310,27 +305,6 @@ func checkEveryQueueIsDrained(reg *engineRegistryImplementation, drained map[Que
 		orphans[0])
 }
 
-// checkEveryCdcEntityIsConsumed is the inverse of the old orphan check. An
-// entity tagged `cdc` publishes on every write, so one no consumer filters is
-// pure cost: bytes on the stream that nothing will ever read.
-func checkEveryCdcEntityIsConsumed(reg *engineRegistryImplementation, consumed map[string]bool) error {
-	var orphans []string
-	for _, schema := range reg.entitySchemas {
-		if schema.cdc && !consumed[schema.tableName] {
-			orphans = append(orphans, schema.tableName)
-		}
-	}
-	if len(orphans) == 0 {
-		return nil
-	}
-	// Map order is random; sort so a restart names the same entity.
-	sort.Strings(orphans)
-
-	return fmt.Errorf(
-		"entity '%s' is tagged `orm:\"cdc\"` but no consumer declares it, so its events would be published and never read; add it to a ConsumerDef or drop the tag",
-		orphans[0])
-}
-
 func consumerEntitySchema(
 	schemaByType map[reflect.Type]*entitySchema, consumer ConsumerName, entity any,
 ) (*entitySchema, error) {
@@ -348,12 +322,6 @@ func consumerEntitySchema(
 			"consumer '%s' declares entity '%s' which is not registered; add registry.RegisterEntity(%s{})",
 			consumer, t.Name(), t.Name())
 	}
-	if !schema.cdc {
-		return nil, fmt.Errorf(
-			"consumer '%s' declares entity '%s' which is not tagged `orm:\"cdc\"`, so it never publishes",
-			consumer, t.Name())
-	}
-
 	return schema, nil
 }
 

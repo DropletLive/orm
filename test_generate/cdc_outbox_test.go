@@ -182,7 +182,7 @@ func TestDirtyWithoutOutboxWritesNoRow(t *testing.T) {
 	assert.NoError(t, ctx.Save(e))
 
 	assert.Empty(t, outboxRows(t, ctx.Clone()),
-		"an entity tagged cdc without outbox keeps the fire-and-forget behaviour")
+		"a consumed entity without outbox keeps the fire-and-forget behaviour")
 }
 
 func TestOneWriteIsOneRow(t *testing.T) {

@@ -1,6 +1,7 @@
 package test_generate
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -166,6 +167,68 @@ func TestReaderReturnsAFailedForward(t *testing.T) {
 	consumer, err := js.Consumer(ctx.Context(), orm.CDCStreamName, string(orm.CDCReaderName))
 	require.NoError(t, err)
 	info, err := consumer.Info(ctx.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, info.NumAckPending, "the change stays on the feed for redelivery")
+}
+
+// The reader takes the whole feed and hands every raw event to its handler,
+// tables no consumer declares included.
+func TestReaderHandsEveryEventToItsHandler(t *testing.T) {
+	ctx := outboxCtx(t)
+	defer ctx.Engine().Nats("nats").Close()
+
+	js, err := ctx.Engine().Nats("nats").GetJetStream()
+	require.NoError(t, err)
+	durable, err := js.Consumer(ctx.Context(), orm.CDCStreamName, string(orm.CDCReaderName))
+	require.NoError(t, err)
+	assert.Empty(t, durable.CachedInfo().Config.FilterSubject)
+	assert.Empty(t, durable.CachedInfo().Config.FilterSubjects)
+
+	undeclared := orm.NewNatsMessage(string(orm.CDCSubject("test", "notAnEntity")))
+	undeclared.Data = []byte(`{"before":null,"after":{"ID":1},"op":"c","ts_ms":1,"source":{"ts_ms":1}}`)
+	require.NoError(t, ctx.Engine().Nats("nats").Publish(ctx, undeclared))
+	e := entities.GenerateEntityDirtyProvider.New(ctx)
+	e.SetName("declared")
+	require.NoError(t, ctx.Save(e))
+
+	var subjects []string
+	reader := orm.NewCDCReader(ctx.Engine(), func(c orm.Context, events []*orm.NatsMessage) error {
+		for _, msg := range events {
+			subjects = append(subjects, msg.Subject)
+		}
+
+		return orm.DispatchCDC(c, events)
+	})
+	require.NoError(t, reader.Consume(ctx.Context(), 16, 300*time.Millisecond))
+
+	assert.Equal(t, []string{
+		string(orm.CDCSubject("test", "notAnEntity")),
+		string(orm.CDCSubject("test", "generateEntityDirty")),
+	}, subjects)
+	pending, err := orm.ConsumerPending(ctx, orm.CDCReaderName)
+	require.NoError(t, err)
+	assert.Zero(t, pending)
+}
+
+// A handler that fails acks nothing, whatever else it did with the batch.
+func TestReaderAcksNothingWhenItsHandlerFails(t *testing.T) {
+	ctx := outboxCtx(t)
+	defer ctx.Engine().Nats("nats").Close()
+
+	e := entities.GenerateEntityDirtyProvider.New(ctx)
+	e.SetName("kept")
+	require.NoError(t, ctx.Save(e))
+
+	reader := orm.NewCDCReader(ctx.Engine(), func(orm.Context, []*orm.NatsMessage) error {
+		return errors.New("clickhouse down")
+	})
+	assert.Error(t, reader.Consume(ctx.Context(), 16, 300*time.Millisecond))
+
+	js, err := ctx.Engine().Nats("nats").GetJetStream()
+	require.NoError(t, err)
+	durable, err := js.Consumer(ctx.Context(), orm.CDCStreamName, string(orm.CDCReaderName))
+	require.NoError(t, err)
+	info, err := durable.Info(ctx.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 1, info.NumAckPending, "the change stays on the feed for redelivery")
 }

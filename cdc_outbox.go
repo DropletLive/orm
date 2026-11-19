@@ -22,7 +22,7 @@ var ErrOutboxDispatchMark = errors.New("cdc outbox dispatch mark failed")
 // generates, alters and queries like any other entity.
 //
 // An entity tagged `orm:"outbox"` gets one row per write, inside that
-// write's own transaction. With `cdc` the row is a delivery guarantee; alone
+// write's own transaction. On a consumed entity the row is a delivery guarantee; alone
 // it is a change log. See the package docs for the full truth table.
 type CDCOutboxEntity struct {
 	ID           uint64     `orm:"table=cdc_outbox"`
@@ -138,8 +138,8 @@ func (orm *ormImplementation) stageDirtyOutbox(list []*pendingWrite) ([]uint64, 
 		// published message stay byte-identical, and a replay keeps its dedup id.
 		w.dirtyPayload = payload
 
-		// A `cdc`-tagged entity has a subject to deliver to, so its row is a
-		// delivery guarantee. Without the tag there is nothing to publish and the
+		// An entity a consumer declares has a subject to deliver to, so its row is a
+		// delivery guarantee. Without a consumer there is nothing to publish and the
 		// row is born terminal: a change log, not a queue.
 		status := CDCOutboxStored
 		if publisher.cdc {

@@ -48,8 +48,6 @@ type ClickhouseOptions struct {
 	MaxOpenConnections int
 	MaxIdleConnections int
 	IgnoredTables      []string
-	// Replicated turns MergeTree-family engines of this pool's tables into their Replicated* form (a Replicated database).
-	Replicated bool
 }
 
 type Clickhouse interface {

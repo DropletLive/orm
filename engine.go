@@ -50,6 +50,7 @@ type engineRegistryImplementation struct {
 	entityStream            EntityStreamOptions
 	consumers               map[ConsumerName]*resolvedConsumer
 	cdcEntities             map[reflect.Type]*cdcEntityEntry
+	cdcBySubject            map[Subject]*cdcEntityEntry
 	cdcStream               CDCStreamOptions
 	cdcOutbox               *resolvedCDCOutbox
 	jobRuns                 *resolvedJobRuns

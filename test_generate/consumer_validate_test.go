@@ -15,17 +15,12 @@ type oldDirtyTagEntity struct {
 	Name string `orm:"required;length=100"`
 }
 
-type unconsumedCdcEntity struct {
-	ID   uint64 `orm:"cdc"`
-	Name string `orm:"required;length=100"`
-}
-
 type consumedCdcEntity struct {
-	ID   uint64 `orm:"cdc"`
+	ID   uint64
 	Name string `orm:"required;length=100"`
 }
 
-type untaggedEntity struct {
+type unregisteredEntity struct {
 	ID   uint64
 	Name string `orm:"required;length=100"`
 }
@@ -54,37 +49,14 @@ func TestValidateRejectsTheOldDirtyTag(t *testing.T) {
 	assert.ErrorContains(t, err, "ConsumerDef")
 }
 
-// TestValidateRejectsACdcEntityNobodyConsumes is the inverse of the old orphan
-// check. A tagged entity publishes on every write, so one no consumer filters
-// is bytes on the stream that nothing will ever read.
-func TestValidateRejectsACdcEntityNobodyConsumes(t *testing.T) {
-	err := validateRegistry([]any{unconsumedCdcEntity{}})
-
-	assert.ErrorContains(t, err, "no consumer declares it")
-	assert.ErrorContains(t, err, "unconsumedCdcEntity")
-}
-
 func TestValidateRejectsAConsumerDeclaringAnUnregisteredEntity(t *testing.T) {
 	err := validateRegistry(
 		[]any{consumedCdcEntity{}},
-		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, untaggedEntity{}}},
+		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, unregisteredEntity{}}},
 	)
 
 	assert.ErrorContains(t, err, "is not registered")
-	assert.ErrorContains(t, err, "untaggedEntity")
-}
-
-// TestValidateRejectsAConsumerDeclaringAnUntaggedEntity covers the case that
-// otherwise fails silently: the filter subject exists, but nothing publishes to
-// it, so the handler simply never fires.
-func TestValidateRejectsAConsumerDeclaringAnUntaggedEntity(t *testing.T) {
-	err := validateRegistry(
-		[]any{consumedCdcEntity{}, untaggedEntity{}},
-		orm.ConsumerDef{Name: "reader", Entities: []any{consumedCdcEntity{}, untaggedEntity{}}},
-	)
-
-	assert.ErrorContains(t, err, "not tagged")
-	assert.ErrorContains(t, err, "untaggedEntity")
+	assert.ErrorContains(t, err, "unregisteredEntity")
 }
 
 func TestValidateRejectsADuplicateConsumerName(t *testing.T) {

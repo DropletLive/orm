@@ -96,12 +96,6 @@ func validateOrmClickhouseURI(registry *registry, value any, key string) error {
 			if err != nil {
 				return err
 			}
-		case "replicated":
-			replicated, ok := v.(bool)
-			if !ok {
-				return fmt.Errorf("invalid replicated value '%v' for clickhouse pool '%s'", v, key)
-			}
-			options.Replicated = replicated
 		}
 	}
 	registry.RegisterClickhouse(uri, key, options)

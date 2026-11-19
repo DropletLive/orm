@@ -42,7 +42,6 @@ type ConfigClickhouse struct {
 	MaxOpenConnections int      `yaml:"maxOpenConnections"`
 	MaxIdleConnections int      `yaml:"maxIdleConnections"`
 	IgnoredTables      []string `yaml:"ignoredTables"`
-	Replicated         bool     `yaml:"replicated"`
 }
 
 type ConfigNatsConsumer struct {
@@ -135,7 +134,6 @@ func (r *registry) InitByConfig(config *Config) error {
 		options.MaxOpenConnections = pool.MaxOpenConnections
 		options.MaxIdleConnections = pool.MaxIdleConnections
 		options.IgnoredTables = pool.IgnoredTables
-		options.Replicated = pool.Replicated
 		r.RegisterClickhouse(pool.URI, pool.Code, options)
 	}
 	for _, pool := range config.NatsPools {

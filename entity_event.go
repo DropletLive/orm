@@ -246,7 +246,7 @@ type cdcEntityEntry struct {
 	tableName  string
 	entityName string
 	database   string
-	// cdc means listeners read it: the reader forwards its changes.
+	// cdc means a consumer declares it: DispatchCDC forwards its changes.
 	cdc         bool
 	outbox      bool
 	reflectType reflect.Type
@@ -327,6 +327,7 @@ func isOnCDCFeed(schema *entitySchema) bool {
 func resolveCDCEntities(e *engineImplementation) {
 	reg := e.registry
 	reg.cdcEntities = make(map[reflect.Type]*cdcEntityEntry)
+	reg.cdcBySubject = make(map[Subject]*cdcEntityEntry)
 
 	for _, schema := range reg.entitySchemas {
 		if !isOnCDCFeed(schema) {
@@ -342,6 +343,9 @@ func resolveCDCEntities(e *engineImplementation) {
 		scoped.database = e.dbServers[schema.mysqlPoolCode].GetConfig().GetDatabaseName()
 		scoped.subject = CDCSubject(scoped.database, schema.tableName)
 		reg.cdcEntities[entry.reflectType] = &scoped
+		if scoped.cdc {
+			reg.cdcBySubject[scoped.subject] = &scoped
+		}
 	}
 }
 

@@ -238,7 +238,7 @@ func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 	desired := collectDesiredStreams(ctx, reg)
 	consumersByPool := collectDesiredConsumers(reg)
 
-	if len(reg.cdcReaderSubjects()) > 0 {
+	if len(reg.cdcBySubject) > 0 {
 		if desired[reg.cdcStream.NatsPool] == nil {
 			desired[reg.cdcStream.NatsPool] = make(map[string]jetstream.StreamConfig)
 		}
@@ -274,7 +274,7 @@ func GetNatsAlters(ctx Context) ([]NatsAlter, error) {
 
 		// Created when missing, never updated: once Debezium runs, its deployment
 		// owns the stream's limits and the ORM must not fight it.
-		if poolCode == reg.cdcStream.NatsPool && len(reg.cdcReaderSubjects()) > 0 {
+		if poolCode == reg.cdcStream.NatsPool && len(reg.cdcBySubject) > 0 {
 			if _, ok := existing[CDCStreamName]; !ok {
 				alters = append(alters, buildCreateStreamAlter(js, CDCStreamName, reg.cdcStreamConfig(), poolCode))
 			}

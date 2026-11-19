@@ -156,7 +156,7 @@ func TestMultiSubjectConsumerReceivesAllItsEntities(t *testing.T) {
 }
 
 // TestCDCSyncPath validates the sync flush publish path: insert/update/delete on
-// a `cdc`-tagged entity produces typed events on its subject.
+// an entity a consumer declares produces typed events on its subject.
 func TestCDCSyncPath(t *testing.T) {
 	ctx := consumerCtx(t)
 	defer ctx.Engine().Nats("nats").Close()

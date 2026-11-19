@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"sort"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -71,12 +70,13 @@ func cdcStreamOptionsOf(r *registry) CDCStreamOptions {
 }
 
 // resolveCDCStream applies the defaults and seeds the reader's durable on its
-// pool, so pool.Consumer(CDCReaderName) resolves at runtime.
+// pool, so pool.Consumer(CDCReaderName) resolves at runtime. The durable reads
+// the whole feed: Debezium captures every table, and DispatchCDC skips the ones
+// no consumer declares.
 func resolveCDCStream(r *registry, e *engineImplementation) {
 	reg := e.registry
 	reg.cdcStream = applyCDCStreamDefaults(cdcStreamOptionsOf(r), cdcStreamPool(r))
-	subjects := reg.cdcReaderSubjects()
-	if len(subjects) == 0 {
+	if len(reg.cdcBySubject) == 0 {
 		return
 	}
 	pool, has := r.natsPools[reg.cdcStream.NatsPool]
@@ -84,27 +84,12 @@ func resolveCDCStream(r *registry, e *engineImplementation) {
 		return
 	}
 	pool.consumers[string(CDCReaderName)] = &NatsConsumerSettings{
-		Name:           string(CDCReaderName),
-		Stream:         CDCStreamName,
-		FilterSubjects: subjectStrings(subjects),
-		AckWait:        reg.cdcStream.ReaderAckWait,
-		MaxAckPending:  reg.cdcStream.ReaderMaxAckPending,
-		MaxDeliver:     -1,
+		Name:          string(CDCReaderName),
+		Stream:        CDCStreamName,
+		AckWait:       reg.cdcStream.ReaderAckWait,
+		MaxAckPending: reg.cdcStream.ReaderMaxAckPending,
+		MaxDeliver:    -1,
 	}
-}
-
-// cdcReaderSubjects lists every table the reader filters, sorted so the durable
-// config is stable across runs.
-func (reg *engineRegistryImplementation) cdcReaderSubjects() []Subject {
-	subjects := make([]Subject, 0, len(reg.cdcEntities))
-	for _, entry := range reg.cdcEntities {
-		if entry.cdc {
-			subjects = append(subjects, entry.subject)
-		}
-	}
-	sortSubjects(subjects)
-
-	return subjects
 }
 
 func (reg *engineRegistryImplementation) cdcStreamConfig() jetstream.StreamConfig {
@@ -127,12 +112,7 @@ func (reg *engineRegistryImplementation) cdcReaderBuilder() *NatsConsumerBuilder
 
 	return NewNatsConsumer(string(CDCReaderName), opts.NatsPool).
 		Stream(CDCStreamName).
-		FilterSubjects(subjectStrings(reg.cdcReaderSubjects())...).
 		MaxAckPending(opts.ReaderMaxAckPending).
 		AckWait(opts.ReaderAckWait).
 		MaxDeliver(-1)
-}
-
-func sortSubjects(subjects []Subject) {
-	sort.Slice(subjects, func(i, j int) bool { return subjects[i] < subjects[j] })
 }

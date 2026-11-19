@@ -190,12 +190,8 @@ func (r *registry) Validate() (Engine, error) {
 			if err := table.validate(); err != nil {
 				return nil, err
 			}
-			pool, exists := r.clickhousePools[table.poolCode]
-			if !exists {
+			if _, exists := r.clickhousePools[table.poolCode]; !exists {
 				return nil, fmt.Errorf("clickhouse pool '%s' not registered for table '%s'", table.poolCode, table.tableName)
-			}
-			if pool.GetOptions().Replicated {
-				table.engine = replicatedClickhouseEngine(table.engine)
 			}
 			key := table.poolCode + "." + table.tableName
 			if existingPool, exists := seenTableNames[key]; exists {
@@ -351,16 +347,17 @@ func (r *registry) Validate() (Engine, error) {
 	for key, value := range r.options {
 		e.registry.options[key] = value
 	}
-	resolveCDCEntities(e)
 	resolveJobRuns(e)
 	// Tasks first: a consumer declares queues, and resolveConsumers checks them
 	// against the tasks that actually exist.
 	if err := resolveTasks(r, e); err != nil {
 		return nil, err
 	}
+	// Consumers before the feed: declaring an entity is what puts it on it.
 	if err := resolveConsumers(r, e); err != nil {
 		return nil, err
 	}
+	resolveCDCEntities(e)
 	resolveCDCStream(r, e)
 	if err := resolveCDCOutbox(e); err != nil {
 		return nil, err
@@ -442,7 +439,6 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	// Consumers and tasks come from the registry, not from entity tags, so this
 	// reduced validate path has to resolve them explicitly or the generator sees
 	// none and emits nothing.
-	resolveCDCEntities(e)
 	resolveJobRuns(e)
 	if err := resolveTasks(r, e); err != nil {
 		return nil, err
@@ -450,6 +446,7 @@ func (r *registry) ValidateForCodeGen() (Engine, error) {
 	if err := resolveConsumers(r, e); err != nil {
 		return nil, err
 	}
+	resolveCDCEntities(e)
 	resolveCDCStream(r, e)
 	if err := resolveElasticsearchDocuments(r, e); err != nil {
 		return nil, err
