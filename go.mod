@@ -5,16 +5,16 @@ go 1.26.0
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.51.0
 	github.com/bsm/redislock v0.10.0
-	github.com/elastic/go-elasticsearch/v9 v9.5.2
-	github.com/go-sql-driver/mysql v1.10.1
+	github.com/elastic/go-elasticsearch/v9 v9.5.3
+	github.com/go-sql-driver/mysql v1.10.2
 	github.com/json-iterator/go v1.1.12
-	github.com/nats-io/nats.go v1.55.0
+	github.com/nats-io/nats.go v1.56.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/puzpuzpuz/xsync/v2 v2.5.1
 	github.com/redis/go-redis/v9 v9.23.0
-	github.com/shamaton/msgpack/v3 v3.2.7
+	github.com/shamaton/msgpack/v3 v3.2.8
 	github.com/stretchr/testify v1.12.1
 	gopkg.in/yaml.v2 v2.4.0
 )
