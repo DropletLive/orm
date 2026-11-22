@@ -357,7 +357,7 @@ func (p *natsPoolImplementation) PublishBatch(ctx Context, msgs []*NatsMessage) 
 		select {
 		case <-future.Ok():
 		case ackErr := <-future.Err():
-			if err == nil {
+			if err == nil && !isDuplicateInProcess(ackErr) {
 				err = ackErr
 			}
 		case <-ctx.Context().Done():
@@ -375,6 +375,17 @@ func (p *natsPoolImplementation) PublishBatch(ctx Context, msgs []*NatsMessage) 
 	p.fillBatchMetrics(ctx, len(msgs))
 
 	return err
+}
+
+// jsErrCodeDuplicateInProcess is JetStream refusing a Nats-Msg-Id another
+// publisher is still storing; nats.go has no constant for it.
+const jsErrCodeDuplicateInProcess jetstream.ErrorCode = 10158
+
+// isDuplicateInProcess reports a publish that lost the race to another copy of
+// the same Nats-Msg-Id: that copy stores the message, so this one is done.
+func isDuplicateInProcess(err error) bool {
+	var apiErr *jetstream.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode == jsErrCodeDuplicateInProcess
 }
 
 func (p *natsPoolImplementation) PublishAsync(ctx Context, msg *NatsMessage, callback func(*NatsMessage, error)) {
