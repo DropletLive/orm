@@ -7,7 +7,6 @@ import (
 
 	"github.com/DropletLive/orm"
 	"github.com/DropletLive/orm/test_generate/entities"
-	"github.com/DropletLive/orm/test_generate/entities/enums"
 	"github.com/stretchr/testify/require"
 )
 
@@ -295,7 +294,6 @@ func TestRepeatedSaveOutboxCapturesEveryWrite(t *testing.T) {
 	}
 	var events []envelope
 	for _, row := range rows {
-		require.Equal(t, enums.CDCOutboxStatusList.Dispatched, row.GetStatus())
 		var event envelope
 		require.NoError(t, json.Unmarshal([]byte(row.GetPayload()), &event))
 		events = append(events, event)

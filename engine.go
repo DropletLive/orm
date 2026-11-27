@@ -52,7 +52,7 @@ type engineRegistryImplementation struct {
 	cdcEntities             map[reflect.Type]*cdcEntityEntry
 	cdcBySubject            map[Subject]*cdcEntityEntry
 	cdcStream               CDCStreamOptions
-	cdcOutbox               *resolvedCDCOutbox
+	outbox                  *resolvedOutbox
 	jobRuns                 *resolvedJobRuns
 	taskStream              TaskStreamOptions
 	tasks                   map[TaskName]*taskSchema

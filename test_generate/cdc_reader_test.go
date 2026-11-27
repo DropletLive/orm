@@ -27,7 +27,7 @@ func cdcStreamMessages(t *testing.T, ctx orm.Context) uint64 {
 // A snapshot read is not a change: Debezium's snapshot events stay on the feed
 // and reach no listener.
 func TestReadEventsReachNoListener(t *testing.T) {
-	ctx := outboxCtx(t)
+	ctx := feedCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	calls := 0
@@ -59,13 +59,11 @@ func TestReadEventsReachNoListener(t *testing.T) {
 	assert.Zero(t, pending, "the read event is acked")
 }
 
-// Once Debezium owns the feed the ORM must publish nothing.
-func TestExternalProducerPublishesNothing(t *testing.T) {
-	registry := FixtureRegistry()
-	registry.RegisterCDCStream(orm.CDCStreamOptions{Producer: orm.CDCProducerExternal, NatsPool: "nats"})
-	ctx := orm.PrepareTablesWithConsumers(t, registry, FixtureConsumers(),
+// Debezium writes the feed; a save never publishes to it.
+func TestSavePublishesNothingToTheFeed(t *testing.T) {
+	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityOutbox{}, generateEntityStoreOnly{}, generateEntityDirty{},
-		generateEntityDirtyB{}, orm.CDCOutboxEntity{}, orm.JobRunEntity{},
+		generateEntityDirtyB{}, orm.OutboxEntity{}, orm.JobRunEntity{},
 	)
 	defer ctx.Engine().Nats("nats").Close()
 
@@ -93,7 +91,7 @@ func TestNewSnapshotIsReadOnlyAndReadable(t *testing.T) {
 // The reader's backlog is readable like any consumer's, so the application can
 // alert on a feed nobody is draining.
 func TestReaderBacklogIsReadable(t *testing.T) {
-	ctx := outboxCtx(t)
+	ctx := feedCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	e := entities.GenerateEntityDirtyBProvider.New(ctx)
@@ -113,7 +111,7 @@ func TestReaderBacklogIsReadable(t *testing.T) {
 // The reader forwards in fetch order, so a listener reading several tables sees
 // them in the order they were written.
 func TestReaderForwardsInWriteOrderAcrossTables(t *testing.T) {
-	ctx := outboxCtx(t)
+	ctx := feedCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	a := entities.GenerateEntityDirtyProvider.New(ctx)
@@ -151,7 +149,7 @@ func TestReaderForwardsInWriteOrderAcrossTables(t *testing.T) {
 // A forward that fails acks nothing and returns the error, so the loop backs
 // off instead of fetching newer changes past the ones it could not deliver.
 func TestReaderReturnsAFailedForward(t *testing.T) {
-	ctx := outboxCtx(t)
+	ctx := feedCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	e := entities.GenerateEntityDirtyProvider.New(ctx)
@@ -174,7 +172,7 @@ func TestReaderReturnsAFailedForward(t *testing.T) {
 // The reader takes the whole feed and hands every raw event to its handler,
 // tables no consumer declares included.
 func TestReaderHandsEveryEventToItsHandler(t *testing.T) {
-	ctx := outboxCtx(t)
+	ctx := feedCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
@@ -212,7 +210,7 @@ func TestReaderHandsEveryEventToItsHandler(t *testing.T) {
 
 // A handler that fails acks nothing, whatever else it did with the batch.
 func TestReaderAcksNothingWhenItsHandlerFails(t *testing.T) {
-	ctx := outboxCtx(t)
+	ctx := feedCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	e := entities.GenerateEntityDirtyProvider.New(ctx)

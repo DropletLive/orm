@@ -3,7 +3,7 @@
 package test_generate
 
 // Run with Debezium up (docker compose up debezium):
-// go test -tags cdc_debezium -run TestORMFeedMatchesDebezium ./test_generate/
+// go test -tags cdc_debezium -run TestORMEncodingMatchesDebezium ./test_generate/
 
 import (
 	"bytes"
@@ -34,13 +34,15 @@ type parityEnvelope struct {
 	After  map[string]any
 }
 
-// TestORMFeedMatchesDebezium is what makes switching the producer a non-event:
-// every row image the ORM publishes must equal the one Debezium reads from the
-// binlog for the same write, value for value.
-func TestORMFeedMatchesDebezium(t *testing.T) {
+// TestORMEncodingMatchesDebezium keeps the ORM's own envelopes (replays and
+// outbox rows) identical to Debezium's: every row image the ORM encodes must
+// equal the one Debezium reads from the binlog for the same write, value for
+// value. emulateDebezium publishes the ORM's encoding on the cdc subject.
+func TestORMEncodingMatchesDebezium(t *testing.T) {
 	ctx := orm.PrepareTablesWithConsumers(t, orm.NewRegistry(), []orm.ConsumerDef{FixtureParityConsumer()},
 		generateEntityParity{}, generateReferenceEntity{})
 	defer ctx.Engine().Nats("nats").Close()
+	emulateDebezium(t, ctx, map[orm.Entity]string{entities.GenerateEntityParityProvider.New(ctx): "generateEntityParity"})
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
 	require.NoError(t, err)

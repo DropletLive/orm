@@ -47,13 +47,6 @@ type pendingWrite struct {
 	entity     Entity
 	source     Entity
 	cacheIndex string
-	// dirtyPayload is the CDC event serialised once during outbox staging and
-	// reused when publishing. The payload is not deterministic - buildEvent
-	// stamps TsMs - so re-serialising it would give the stored row different
-	// bytes, and therefore a different Nats-Msg-Id, from the event consumers
-	// actually saw. A relay replay would then dodge JetStream's dedup and
-	// deliver twice. Nil for entities that do not route to the outbox.
-	dirtyPayload []byte
 }
 
 // Save writes exactly the given entities and nothing else on this context.
@@ -185,8 +178,7 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) (err error) {
 		// advancing the live origin. Later setters cannot alter this write.
 		w.entity = w.source.(entityWriteState).PrivateSnapshot()
 	}
-	outboxIDs, err := orm.stageDirtyOutbox(list)
-	if err != nil {
+	if err := orm.stageOutbox(list); err != nil {
 		return err
 	}
 	keys := orm.takePendingInvalidations()
@@ -213,7 +205,7 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) (err error) {
 		}
 		w.source.(entityWriteState).PrivateAdvance(w.entity)
 	}
-	post := func() error { return orm.runPostCommit(list, keys, outboxIDs) }
+	post := func() error { return orm.runPostCommit(list, keys) }
 	if orm.tx != nil {
 		orm.queueAfterCommit(post)
 		return nil
@@ -227,7 +219,7 @@ func (orm *ormImplementation) writeEntities(list []*pendingWrite) (err error) {
 // runPostCommit performs everything that must only become visible once the rows
 // are durable. The second cache delete closes the window where a concurrent read
 // refilled a key from a pre-commit snapshot.
-func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[string][]string, outboxIDs []uint64) error {
+func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[string][]string) error {
 	for _, w := range list {
 		if eventType, _ := w.entity.PrivateFlushEvent(); eventType == 3 && w.cacheIndex != "" {
 			// A later write may have restored a soft-deleted row or replaced a
@@ -246,12 +238,6 @@ func (orm *ormImplementation) runPostCommit(list []*pendingWrite, keys map[strin
 			return err
 		}
 	}
-	if err := orm.publishDirtyFor(list); err != nil {
-		return err
-	}
-	if err := orm.markOutboxDispatched(outboxIDs); err != nil {
-		return err
-	}
 	return orm.runAfterHandlers(list)
 }
 
@@ -263,29 +249,6 @@ func (orm *ormImplementation) discardWriteQueues() {
 	for _, pipeline := range orm.takeRedisPipelines() {
 		pipeline.discard()
 	}
-}
-
-// publishDirtyFor puts each write on the change feed, unless Debezium owns it.
-func (orm *ormImplementation) publishDirtyFor(list []*pendingWrite) error {
-	reg := orm.engine.registry
-	if len(reg.cdcEntities) == 0 || reg.cdcStream.Producer == CDCProducerExternal {
-		return nil
-	}
-	pending := make(pendingDirtyMessages)
-	for _, w := range list {
-		eventType, _ := w.entity.PrivateFlushEvent()
-		if eventType == 0 {
-			continue
-		}
-		entry, ok := reg.cdcEntityFor(w.entity)
-		if !ok || !entry.cdc {
-			continue
-		}
-		if err := buildDirtyEvent(orm, pending, entry, w, dirtyOpFromFlushType(eventType)); err != nil {
-			return err
-		}
-	}
-	return flushDirtyMessages(orm, pending)
 }
 
 func (orm *ormImplementation) runAfterHandlers(list []*pendingWrite) error {

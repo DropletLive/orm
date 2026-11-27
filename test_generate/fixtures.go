@@ -190,16 +190,15 @@ type generateEntityDirtyB struct {
 	Label string `orm:"required;length=100"`
 }
 
-// generateEntityOutbox is cdc + outbox: durable delivery. Its relayed row has
-// to reach the same subject the inline publish would have used.
+// generateEntityOutbox is consumed and tagged outbox: its changes reach a
+// listener through the feed and are logged in the outbox table.
 type generateEntityOutbox struct {
 	ID   uint64 `orm:"outbox"`
 	Name string `orm:"required;length=100"`
 	Age  uint16
 }
 
-// generateEntityStoreOnly is outbox with no consumer: a transactional change
-// log with no subject to publish to.
+// generateEntityStoreOnly is outbox with no consumer: only the change log.
 type generateEntityStoreOnly struct {
 	ID   uint64 `orm:"outbox"`
 	Name string `orm:"required;length=100"`
@@ -279,7 +278,7 @@ func FixtureEntities() []any {
 		generateEntityCachedUnique{}, generateEntityCachedUniqueNoRedis{}, generateEntityCachedUniqueFakeDelete{},
 		generateEntityCachedAll{}, generateEntityCachedAllFakeDelete{},
 		generateEntityWithIndex{}, generateEntityEnumRef{}, generateEntityDirty{}, generateEntityDirtyB{},
-		generateEntityOutbox{}, generateEntityStoreOnly{}, orm.CDCOutboxEntity{},
+		generateEntityOutbox{}, generateEntityStoreOnly{}, orm.OutboxEntity{},
 		orm.JobRunEntity{},
 	}
 }

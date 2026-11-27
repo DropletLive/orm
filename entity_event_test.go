@@ -60,7 +60,7 @@ func decodeCDCTestRow(_ Context, image map[string]json.RawMessage) (*cdcTestRow,
 
 func cdcTestPayload(t *testing.T, change CDCChange) []byte {
 	t.Helper()
-	data, err := marshalCDCChange(change, "droplet", "things", time.UnixMilli(1793900000000))
+	data, err := MarshalCDCChange(change, "droplet", "things", time.UnixMilli(1793900000000))
 	require.NoError(t, err)
 	return data
 }

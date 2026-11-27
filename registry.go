@@ -359,7 +359,7 @@ func (r *registry) Validate() (Engine, error) {
 	}
 	resolveCDCEntities(e)
 	resolveCDCStream(r, e)
-	if err := resolveCDCOutbox(e); err != nil {
+	if err := resolveOutbox(e); err != nil {
 		return nil, err
 	}
 	if err := resolveElasticsearchDocuments(r, e); err != nil {

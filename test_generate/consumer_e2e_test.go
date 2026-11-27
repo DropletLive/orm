@@ -30,38 +30,32 @@ import (
 func consumerCtx(t *testing.T) orm.Context {
 	t.Helper()
 
-	return orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
+	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
+		orm.OutboxEntity{}, orm.JobRunEntity{})
+	emulateDebezium(t, ctx, map[orm.Entity]string{
+		entities.GenerateEntityDirtyProvider.New(ctx):  "generateEntityDirty",
+		entities.GenerateEntityDirtyBProvider.New(ctx): "generateEntityDirtyB",
+		entities.GenerateEntityOutboxProvider.New(ctx): "generateEntityOutbox",
+	})
+
+	return ctx
 }
 
-// TestOneWriteIsOneMessageHoweverManyConsumers is the test the whole topology
-// change exists for.
-//
-// generateEntityDirty is declared by two consumers. Under the old
-// one-stream-per-consumer model every write was published once per consumer;
-// now the subject identifies the entity and both consumers filter it, so the
-// flush publishes exactly one message and each durable is owed it once.
-//
-// The assertion is on the publish, not just on what the stream ended up
-// holding: identical copies share a Nats-Msg-Id, so the dedup window would hide
-// a return to publish-time fan-out from a stored-message count.
+// TestOneWriteIsOneMessageHoweverManyConsumers: generateEntityDirty is declared
+// by two consumers. The subject identifies the entity and both consumers filter
+// it, so one change on the feed is one message on the entity stream, owed once
+// to each durable.
 func TestOneWriteIsOneMessageHoweverManyConsumers(t *testing.T) {
 	ctx := consumerCtx(t)
 	defer ctx.Engine().Nats("nats").Close()
 
 	before := entityStreamMessages(t, ctx)
 
-	published := &natsPublishLog{}
-	ctx.RegisterQueryLogger(published, orm.QueryLoggerOptions{Nats: true})
-
 	e := entities.GenerateEntityDirtyProvider.New(ctx)
 	e.SetName("one-write")
 	e.SetAge(7)
 	require.NoError(t, ctx.Save(e))
-
-	assert.Equal(t, []int{1}, published.batchSizes(),
-		"one write must publish one batch of exactly one message, whatever number of consumers declare the entity")
 
 	require.Eventually(t, func() bool {
 		return pumpReader(ctx) == nil && entityStreamMessages(t, ctx) > before
@@ -75,21 +69,6 @@ func TestOneWriteIsOneMessageHoweverManyConsumers(t *testing.T) {
 		assert.Equal(t, uint64(1), pending, "consumer %s must be delivered the one stored message", name)
 	}
 }
-
-// natsPublishLog records the size of every publish batch on a context.
-type natsPublishLog struct{ batches []int }
-
-func (l *natsPublishLog) Handle(_ orm.Context, log map[string]any) {
-	if log["operation"] != "PUBLISH_BATCH" {
-		return
-	}
-	var size int
-	if _, err := fmt.Sscanf(log["query"].(string), "messages: %d", &size); err == nil {
-		l.batches = append(l.batches, size)
-	}
-}
-
-func (l *natsPublishLog) batchSizes() []int { return l.batches }
 
 // TestReplayReachesOnlyItsTargetConsumer pins the property the private replay
 // subject buys. Replaying one consumer must not re-drive another, or reindexing

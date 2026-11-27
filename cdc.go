@@ -10,20 +10,9 @@ import (
 	"time"
 )
 
-// The change feed speaks Debezium's MySQL envelope, value encodings included,
-// whoever produces it. The ORM publishes it itself until Debezium takes over the
-// same subjects; nothing that reads the feed can tell the two apart.
-
-// CDCProducer decides who writes the change feed.
-type CDCProducer uint8
-
-const (
-	// CDCProducerORM publishes every write from the ORM after commit.
-	CDCProducerORM CDCProducer = iota
-	// CDCProducerExternal leaves the feed to Debezium: the ORM publishes nothing
-	// and writes no outbox rows.
-	CDCProducerExternal
-)
+// The change feed speaks Debezium's MySQL envelope, value encodings included.
+// Debezium produces it from the binlog; the ORM decodes it, and encodes the same
+// envelope for replays and outbox rows.
 
 // CDC operation codes, as Debezium writes them.
 const (
@@ -86,7 +75,9 @@ type cdcWireEnvelope struct {
 	} `json:"source"`
 }
 
-func marshalCDCChange(change CDCChange, db, table string, at time.Time) ([]byte, error) {
+// MarshalCDCChange writes a change as Debezium's envelope, for replays, outbox
+// rows and tests that stand in for Debezium. source.connector is "orm".
+func MarshalCDCChange(change CDCChange, db, table string, at time.Time) ([]byte, error) {
 	ms := at.UnixMilli()
 	return json.Marshal(cdcEnvelope{
 		Before: change.Before,

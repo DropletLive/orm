@@ -9,14 +9,12 @@ import (
 // CDCStreamOptions tunes the change feed and its reader. Registering it is
 // optional; the defaults match the stream Debezium's deployment creates.
 type CDCStreamOptions struct {
-	// Producer is who writes the feed: the ORM (default) or Debezium.
-	Producer CDCProducer
 	Storage  jetstream.StorageType
 	Replicas int
 	MaxAge   time.Duration
 	MaxBytes int64
-	// DuplicateWindow dedups the ORM's own retries and the outbox relay; the
-	// relay's grace period must stay under it.
+	// DuplicateWindow applies only when the ORM creates the stream (tests,
+	// local runs); Debezium sets no Nats-Msg-Id, so nothing it publishes dedups.
 	DuplicateWindow time.Duration
 	NatsPool        string
 	// ReaderAckWait must exceed the slowest forward of one fetched batch.

@@ -18,7 +18,7 @@ import (
 func TestConsumerCarriesItsStreamExplicitly(t *testing.T) {
 	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
+		orm.OutboxEntity{}, orm.JobRunEntity{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
@@ -45,7 +45,7 @@ func TestConsumerCarriesItsStreamExplicitly(t *testing.T) {
 func TestEntityStreamCarriesBothWildcards(t *testing.T) {
 	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
+		orm.OutboxEntity{}, orm.JobRunEntity{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
@@ -68,6 +68,7 @@ func TestAddingAnEntityUpdatesTheDurableInPlace(t *testing.T) {
 		[]orm.ConsumerDef{{Name: "test-indexer", Entities: []any{generateEntityDirty{}}}},
 		generateEntityDirty{})
 	defer ctx.Engine().Nats("nats").Close()
+	emulateDebezium(t, ctx, map[orm.Entity]string{entities.GenerateEntityDirtyProvider.New(ctx): "generateEntityDirty"})
 
 	e := entities.GenerateEntityDirtyProvider.New(ctx)
 	e.SetName("in-place")

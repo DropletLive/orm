@@ -372,7 +372,7 @@ func cdcReadPayload(reg *engineRegistryImplementation, entity Entity) (*cdcEntit
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, entity)
 	}
-	payload, err := marshalCDCChange(CDCChange{Op: CDCOpRead, After: source.PrivateCDCRow(false)},
+	payload, err := MarshalCDCChange(CDCChange{Op: CDCOpRead, After: source.PrivateCDCRow(false)},
 		entry.database, entry.tableName, time.Now())
 	if err != nil {
 		return nil, nil, fmt.Errorf("build cdc read event for %s: %w", entry.entityName, err)

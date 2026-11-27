@@ -361,10 +361,9 @@ func (reg *engineRegistryImplementation) cdcEntityFor(entity Entity) (*cdcEntity
 
 // ----- Publish -----
 
-// newEntityMessage builds the message every publish path uses - the post-commit
-// flush, the outbox relay, the reader's forward and replay - including the
-// deterministic Nats-Msg-Id that JetStream dedups on. One builder, so a relayed
-// message can never drift from the original and lose its dedup.
+// newEntityMessage builds the message both publish paths use - the reader's
+// forward and replay - including the deterministic Nats-Msg-Id that JetStream
+// dedups on, so a redelivered batch forwards its events once.
 func newEntityMessage(subject Subject, payload []byte) *NatsMessage {
 	msg := NewNatsMessage(string(subject))
 	msg.Data = payload
@@ -387,61 +386,15 @@ func dirtyOpFromFlushType(t uint8) DirtyOp {
 	return 0
 }
 
-// buildCDCPayload serialises one write's change. The envelope carries the
-// commit time, so the bytes are not deterministic: callers that need the same
-// bytes twice (the outbox) keep the first serialisation.
+// buildCDCPayload serialises one write's change as a Debezium envelope, the
+// outbox row's payload.
 func buildCDCPayload(entry *cdcEntityEntry, entity Entity, op DirtyOp) ([]byte, error) {
 	source, ok := entity.(cdcEntity)
 	if !ok {
 		return nil, fmt.Errorf("%w: %T", ErrEntityNeedsRegeneration, entity)
 	}
 
-	return marshalCDCChange(source.PrivateCDCChange(op), entry.database, entry.tableName, time.Now())
-}
-
-// pendingDirtyMessages accumulates messages across a whole Flush, keyed by NATS
-// pool, so each pool is published in one batch instead of one round-trip per
-// entity.
-type pendingDirtyMessages map[string][]*NatsMessage
-
-// buildDirtyEvent serialises the event once and appends exactly one message,
-// whatever number of consumers read that entity.
-func buildDirtyEvent(orm Context, pending pendingDirtyMessages, entry *cdcEntityEntry, w *pendingWrite, op DirtyOp) error {
-	// Outbox staging already serialised this event. Reuse those exact bytes, so
-	// the relay replays it under the same dedup id.
-	payload := w.dirtyPayload
-	if payload == nil {
-		var err error
-		payload, err = buildCDCPayload(entry, w.entity, op)
-		if err != nil {
-			return fmt.Errorf("build cdc event for %s: %w", entry.entityName, err)
-		}
-	}
-
-	poolCode := orm.Engine().Registry().(*engineRegistryImplementation).cdcStream.NatsPool
-	if pool := orm.Engine().Nats(poolCode); pool == nil {
-		return fmt.Errorf("nats pool '%s' for the cdc stream not configured", poolCode)
-	}
-	pending[poolCode] = append(pending[poolCode], newEntityMessage(entry.subject, payload))
-
-	return nil
-}
-
-// flushDirtyMessages publishes each pool's accumulated messages in one batch.
-// Called at the end of the Flush entity walk; Flush still waits for the acks, so
-// "flush succeeded ⇒ event durably published" continues to hold.
-func flushDirtyMessages(orm Context, pending pendingDirtyMessages) error {
-	for poolCode, msgs := range pending {
-		pool := orm.Engine().Nats(poolCode)
-		if pool == nil {
-			return fmt.Errorf("nats pool '%s' for entity publish not configured", poolCode)
-		}
-		if err := pool.PublishBatch(orm, msgs); err != nil {
-			return fmt.Errorf("publish %d entity events to pool %s: %w", len(msgs), poolCode, err)
-		}
-	}
-
-	return nil
+	return MarshalCDCChange(source.PrivateCDCChange(op), entry.database, entry.tableName, time.Now())
 }
 
 // msgIDHash hashes the payload bytes into a uint64 for use in Nats-Msg-Id.

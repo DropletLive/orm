@@ -175,7 +175,7 @@ func TestGeneratedBuilderRefusesAPartialConsumer(t *testing.T) {
 func TestTaskAndEntityConsumersLandOnTheirOwnStream(t *testing.T) {
 	ctx := orm.PrepareTablesWithConsumers(t, FixtureRegistry(), FixtureConsumers(),
 		generateEntityDirty{}, generateEntityDirtyB{}, generateEntityOutbox{},
-		orm.CDCOutboxEntity{}, orm.JobRunEntity{})
+		orm.OutboxEntity{}, orm.JobRunEntity{})
 	defer ctx.Engine().Nats("nats").Close()
 
 	js, err := ctx.Engine().Nats("nats").GetJetStream()
